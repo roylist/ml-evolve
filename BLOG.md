@@ -44,75 +44,45 @@ Before diving into the architecture, here's the design brief — the constraints
 
 ## 3. Architecture: Self-Evolving Agent System
 
-The system operates as three coordinated agent layers, each with a distinct responsibility:
+The system operates as three coordinated agent layers, each with a distinct responsibility. Here's the full flow, from strategy to execution to feedback:
 
-```
-┌──────────────────────────────────────────────────────────────────────┐
-│              SELF-EVOLVING AGENT SYSTEM                              │
-│         (Multi-Island Evolutionary Architecture)                     │
-└──────────────────────────────────────────────────────────────────────┘
+### Layer 1: Strategic Direction
 
-                          PLAN AGENT
-                    (Research & Strategy)
-                    Reads leaderboard + branch health
-                    Writes research_plan.md per island
-                    Decides: KEEP / REFRESH / RETIRE
-                           │
-        ┌──────────────────┼──────────────────┐
-        │                  │                  │
-   ┌────▼────┐       ┌────▼────┐       ┌────▼────┐
-   │ Island 1│       │ Island 2│       │ Island 3│
-   │ Branch A│       │ Branch B│       │ Branch C│
-   │ (isolated)      │ (isolated)      │ (isolated)
-   └────┬────┘       └────┬────┘       └────┬────┘
-        │                  │                  │
-   ┌────▼─────────┐  ┌────▼─────────┐  ┌────▼─────────┐
-   │ MUTATION     │  │ MUTATION     │  │ MUTATION     │
-   │ AGENT        │  │ AGENT        │  │ AGENT        │
-   │ (Claude)     │  │ (Claude)     │  │ (Claude)     │
-   │ Edits EVOLVE │  │ Edits EVOLVE │  │ Edits EVOLVE │
-   │ block        │  │ block        │  │ block        │
-   │ Grounded in  │  │ Grounded in  │  │ Grounded in  │
-   │ papers+cites │  │ papers+cites │  │ papers+cites │
-   └────┬─────────┘  └────┬─────────┘  └────┬─────────┘
-        │                  │                  │
-   ┌────▼─────────┐  ┌────▼─────────┐  ┌────▼─────────┐
-   │ PARAM AGENT  │  │ PARAM AGENT  │  │ PARAM AGENT  │
-   │ (Optuna TPE) │  │ (Optuna TPE) │  │ (Optuna TPE) │
-   │ TPE × N      │  │ TPE × N      │  │ TPE × N      │
-   │ trials on    │  │ trials on    │  │ trials on    │
-   │ PARAM_SEARCH │  │ PARAM_SEARCH │  │ PARAM_SEARCH │
-   │_SPACE        │  │_SPACE        │  │_SPACE        │
-   │ Reports      │  │ Reports      │  │ Reports      │
-   │ saturation   │  │ saturation   │  │ saturation   │
-   └────┬─────────┘  └────┬─────────┘  └────┬─────────┘
-        │                  │                  │
-        └──────────┬───────┴───────┬──────────┘
-                   │               │
-            ┌──────▼──────┐  ┌────▼──────────┐
-            │  EVALUATOR  │  │ STAGE GATE    │
-            │  (scoring)  │  │ small→medium  │
-            │             │  │ →full→final   │
-            └──────┬──────┘  └────┬──────────┘
-                   │               │
-            ┌──────▼──────────────▼──────────┐
-            │   LEADERBOARD + ARCHIVE        │
-            │   (best candidates per island  │
-            │    with full trajectory files) │
-            └──────┬─────────────────────────┘
-                   │
-            ┌──────▼──────┐
-            │   REPLAN    │
-            │ ← island_health signals       │
-            │ → plan agent decides KEEP     │
-            │   / REFRESH / RETIRE&REPLACE  │
-            └─────────────┘
-```
+| Component | Input | Output | Trigger |
+|---|---|---|---|
+| **Plan Agent** | Leaderboard snapshot, per-island branch health | `research_plan.md` with grounded hypotheses per island | Run init + periodic replan |
 
-**Key self-evolving properties**:
-- **Islands evolve independently** — each branch explores a different algorithmic hypothesis without interference
-- **Agent-driven research grounds every mutation** — plan agent researches papers, mutation agent cites sources, parameter agent reports when to stop tuning and start mutating
-- **Closed-loop acceleration** — TPE saturation feedback tells the mutation agent *when* to structurally change, preventing wasted compute on plateaued architectures
+The Plan Agent reads recent papers and conference proceedings, then writes a research plan. Each island gets its own hypothesis (e.g., "does a transformer-based encoder outperform an MLP?"), kill criteria, and model family hints. The plan is a markdown file — editable, version-controllable, auditable.
+
+### Layer 2: Parallel Evolution (×3 islands)
+
+Each island runs an independent evolution loop. Islands are deliberately isolated — a dead end in one doesn't drag down the others.
+
+| Island | Research branch | Mutation Agent | Parameter Agent |
+|---|---|---|---|
+| **Island 1** | Branch A hypothesis | Claude edits the EVOLVE block (architecture, loss, training logic) — grounded in cited papers | Optuna TPE runs N Bayesian trials; reports saturation when further tuning is futile |
+| **Island 2** | Branch B hypothesis | Same mutation contract, different structural direction | Same TPE loop, independent parameter space |
+| **Island 3** | Branch C hypothesis | Same mutation contract, different structural direction | Same TPE loop, independent parameter space |
+
+Each iteration: **select a parent from the island's elite → mutation agent edits the candidate → parameter agent runs TPE trials → score → update leaderboard**.
+
+### Layer 3: Evaluation & Advancement
+
+Once candidates from all islands are scored:
+
+| Component | Function |
+|---|---|
+| **Evaluator** | Runs the candidate on a fixed evaluation protocol (data splits, metric computation, seed averaging). Candidates never touch this logic. |
+| **Stage Gate** | `small` → `medium` → `full` → `final`. Only candidates that win at each stage consume more compute. Catches architectures that overfit to cheap evaluation early. |
+| **Leaderboard + Archive** | Stores the best candidates per island with full evaluation history. Used by the Plan Agent for replan decisions. |
+
+### Layer 4: Meta-Learning (Feedback Loop)
+
+| Component | Input | Decision |
+|---|---|---|
+| **Replan** | `island_health`: best-score trend, TPE saturation, needs_new_branch flag | Per island: **KEEP** (sharpen hypothesis), **REFRESH** (plateau detected, new direction in same space), or **RETIRE & REPLACE** (dead end, inject new branch) |
+
+This is the system's anti-collapse mechanism. Without it, all islands eventually converge to the same lineage. The replan step is where the Plan Agent revises *its own search strategy* — the meta-cognitive loop that makes this a self-evolving system, not just a genetic algorithm with extra steps.
 
 ### 3.1 The task spec contract
 
