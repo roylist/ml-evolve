@@ -1,4 +1,4 @@
-# ml-evolve
+# ml-evolve-skill
 
 > **The first ML optimization framework for industry level task built on AlphaEvolve's paradigm** — a domain-agnostic, industrial-grade algorithm self-optimization engine that evolves ML algorithms autonomously, not just searches hyperparameters.
 >
