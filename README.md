@@ -1,6 +1,10 @@
 # ml-evolve
 
 > **The first ML optimization framework built on AlphaEvolve's paradigm** — a domain-agnostic, industrial-grade algorithm self-optimization engine that evolves ML algorithms autonomously, not just searches hyperparameters.
+>
+> **⚡ Zero config, runs on first try** — ml-evolve is a drop-in skill for **Claude Code, Codex, and Cursor**. Write one YAML file, drop in two Python files, invoke the skill. No Docker, no cloud services, no credential chains. It just runs.
+>
+> **🧠 Multi-agent by design** — combines Claude's three-agent orchestration (Plan Agent researches papers, Mutation Agent edits code, Parameter Agent tunes parameters) into a single self-improving loop.
 
 ml-evolve inherits **AlphaEvolve / OpenEvolve's multi-island evolutionary architecture** and applies it to the ML engineering practice, with three deliberate optimizations that make it production-ready:
 
@@ -29,7 +33,7 @@ Unlike academic research frameworks, ml-evolve is built for **industrial deploym
 ## Quickstart
 
 ```bash
-# 1. Install as a user-level Claude Code skill
+# 1. Install as a Claude Code / Codex / Cursor skill
 git clone <this-repo> ~/.claude/skills/ml-evolve
 
 # 2. In your project directory, drop in three files:
@@ -37,7 +41,7 @@ git clone <this-repo> ~/.claude/skills/ml-evolve
 #    - initial_program.py  (a baseline candidate, must expose an EVOLVE block + PARAM_SEARCH_SPACE)
 #    - evaluator.py        (must export evaluate(candidate_path, stage) -> {"score": float, ...})
 
-# 3. Ask Claude Code:
+# 3. Invoke — works with any code-editing agent:
 /ml-evolve
 ```
 

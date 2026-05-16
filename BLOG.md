@@ -24,6 +24,8 @@ Historically, that's been a human job. You read the papers, formulate hypotheses
 
 This three-agent design puts LLM-driven structural evolution and TPE-driven numerical optimization into a single self-improving loop — auditable, resumable, and compute-aware.
 
+**Why this works on first try** — ml-evolve is built as a drop-in skill for **Claude Code, Codex, and Cursor**. Unlike AlphaEvolve (requires Google-scale infrastructure) or AutoResearch (purpose-built for nanoGPT), ml-evolve needs only three files — a YAML spec, an evaluator, and an initial candidate program. Write them, invoke the skill, and the system runs. No Docker, no cloud services, no API key chains to configure. The multi-agent orchestration (Plan + Mutation + Parameter) is built into the skill — you don't have to wire up agents yourself.
+
 ---
 
 ## 2. What we optimized for
