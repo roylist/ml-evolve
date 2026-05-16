@@ -1,8 +1,18 @@
 # ml-evolve
 
-> A domain-agnostic, OpenEvolve-style evolutionary optimizer for ML algorithms,
-> driven by Claude Code as the mutation agent. The skill body is fixed;
-> everything scenario-specific arrives via a single `task_spec.yaml`.
+> **The first ML optimization framework built on AlphaEvolve's paradigm** — a domain-agnostic, industrial-grade algorithm self-optimization engine that evolves ML algorithms autonomously, not just searches hyperparameters.
+
+ml-evolve inherits **AlphaEvolve / OpenEvolve's multi-island evolutionary architecture** and applies it to the ML engineering practice, with three deliberate optimizations that make it production-ready:
+
+| Optimization | What it solves |
+|---|---|
+| **Parameter search decoupling** | Claude mutates architecture; Optuna TPE handles parameter sweeps. The two search levels don't compete — each uses the right tool, improving compute efficiency by ~10× over LLM-tunes-everything. |
+| **Algorithm research planning** | A plan agent researches recent papers (conferences, tech blogs, Kaggle) and writes grounded hypotheses per island. Mutations are required to cite sources — no drift to stale training-data priors. |
+| **Exploration acceleration** | Multi-island branching with retire/refresh prunes dead ends and injects fresh directions. Stage promotion (`small` → `medium` → `final`) spends expensive evaluations only on survivors. |
+
+Unlike academic research frameworks, ml-evolve is built for **industrial deployment**: every prompt is a file on disk (fully auditable), state is serialized and resumable across machines, and the entire skill body is domain-free — swap `task_spec.yaml` + `evaluator.py` and the same loop works for retrieval, ranking, tabular, RL, prompt programs, or schedulers.
+
+> Compared to Karpathy's AutoResearch (a single-stream, single-domain experiment loop for LLM pre-training), ml-evolve inherits AlphaEvolve's **multi-island population with structured replan**, adds **TPE-based parameter optimization** and **mandatory web-research grounding**, and generalizes from one domain to any ML problem with a scalar evaluator.
 
 `ml-evolve` runs an **architecture × parameter** search loop over your code:
 
