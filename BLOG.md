@@ -1,6 +1,6 @@
-# ml-evolve: The First ML Optimization Framework Built on AlphaEvolve — Industrial-Grade, Multi-Island, Production-Ready
+# ml-evolve: A Self-Evolving Agent System for ML Algorithms — Multi-Island Evolution, Agent-Driven Research, and Accelerated Parameter Search
 
-*A technical write-up of the `ml-evolve` skill — the first domain-agnostic, industrial-grade algorithm self-optimization engine purpose-built for ML deployment, inheriting AlphaEvolve's multi-island evolutionary paradigm while adding production-critical optimizations for parameter search, research planning, and exploration acceleration.*
+*A technical write-up of the `ml-evolve` skill — a **self-evolving agent system** that combines multi-island evolutionary architecture (inherited from AlphaEvolve), LLM-driven algorithmic research, and TPE-accelerated parameter search into a single production-ready framework for autonomous ML algorithm optimization.*
 
 ---
 
@@ -14,13 +14,15 @@ Modern ML research lives in a high-dimensional, partly-discrete, partly-continuo
 
 Bayesian optimization (Optuna TPE, BoTorch, SMAC) handles the first dimension well. AutoML systems (NAS, AutoGluon) handle subsets of the second. But the third — **inventing materially new algorithmic recipes by reading recent literature, then implementing and testing them** — has historically required a human researcher in the loop.
 
-`ml-evolve` is the first framework to bring AlphaEvolve's multi-island evolutionary paradigm into the ML engineering practice — not as an academic research tool, but as a **production-ready algorithm self-optimization engine**. It puts an LLM agent (Claude) into the algorithmic search loop in a way that is auditable, reproducible, and compute-aware, with three deliberate optimizations that make it deployable in real ML pipelines:
+`ml-evolve` is a **self-evolving agent system** — the first framework to bring AlphaEvolve's multi-island evolutionary paradigm into a closed-loop agent architecture where the system autonomously researches, mutates, tunes, and promotes its own algorithmic improvements. It does this through three interdependent agent roles:
 
-| Optimization | What it solves |
-|---|---|
-| **Parameter search decoupling** | Claude mutates architecture; Optuna TPE handles parameter sweeps. The two search levels don't compete — each uses the right tool, improving compute efficiency by ~10× over LLM-tunes-everything. |
-| **Algorithm research planning** | A plan agent researches recent papers (conferences, tech blogs, Kaggle) and writes grounded hypotheses per island. Mutations are required to cite sources — no drift to stale training-data priors. |
-| **Exploration acceleration** | Multi-island branching with retire/refresh prunes dead ends and injects fresh directions. Stage promotion (`small` → `medium` → `final`) spends expensive evaluations only on survivors. |
+| Agent role | Function | Frequency |
+|---|---|---|
+| **Plan Agent** | Researches recent papers, tech blogs, and leaderboards; writes grounded hypotheses per island; decides KEEP / REFRESH / RETIRE & REPLACE on each branch | Per run init + periodic replan |
+| **Mutation Agent** (Claude) | Reads `mutation_request.md`, edits the `EVOLVE` block of a candidate program — architecture, loss function, sampling policy | Per generation |
+| **Parameter Agent** (Optuna TPE) | Performs structured Bayesian search over `PARAM_SEARCH_SPACE` for each mutated architecture, reports saturation telemetry | Per architecture |
+
+This three-agent design puts LLM-driven structural evolution and TPE-driven numerical optimization into a single self-improving loop — auditable, resumable, and compute-aware.
 
 ---
 
@@ -38,7 +40,77 @@ Bayesian optimization (Optuna TPE, BoTorch, SMAC) handles the first dimension we
 
 ---
 
-## 3. Architecture
+## 3. Architecture: Self-Evolving Agent System
+
+The system operates as three coordinated agent layers, each with a distinct responsibility:
+
+```
+┌──────────────────────────────────────────────────────────────────────┐
+│              SELF-EVOLVING AGENT SYSTEM                              │
+│         (Multi-Island Evolutionary Architecture)                     │
+└──────────────────────────────────────────────────────────────────────┘
+
+                          PLAN AGENT
+                    (Research & Strategy)
+                    Reads leaderboard + branch health
+                    Writes research_plan.md per island
+                    Decides: KEEP / REFRESH / RETIRE
+                           │
+        ┌──────────────────┼──────────────────┐
+        │                  │                  │
+   ┌────▼────┐       ┌────▼────┐       ┌────▼────┐
+   │ Island 1│       │ Island 2│       │ Island 3│
+   │ Branch A│       │ Branch B│       │ Branch C│
+   │ (isolated)      │ (isolated)      │ (isolated)
+   └────┬────┘       └────┬────┘       └────┬────┘
+        │                  │                  │
+   ┌────▼─────────┐  ┌────▼─────────┐  ┌────▼─────────┐
+   │ MUTATION     │  │ MUTATION     │  │ MUTATION     │
+   │ AGENT        │  │ AGENT        │  │ AGENT        │
+   │ (Claude)     │  │ (Claude)     │  │ (Claude)     │
+   │ Edits EVOLVE │  │ Edits EVOLVE │  │ Edits EVOLVE │
+   │ block        │  │ block        │  │ block        │
+   │ Grounded in  │  │ Grounded in  │  │ Grounded in  │
+   │ papers+cites │  │ papers+cites │  │ papers+cites │
+   └────┬─────────┘  └────┬─────────┘  └────┬─────────┘
+        │                  │                  │
+   ┌────▼─────────┐  ┌────▼─────────┐  ┌────▼─────────┐
+   │ PARAM AGENT  │  │ PARAM AGENT  │  │ PARAM AGENT  │
+   │ (Optuna TPE) │  │ (Optuna TPE) │  │ (Optuna TPE) │
+   │ TPE × N      │  │ TPE × N      │  │ TPE × N      │
+   │ trials on    │  │ trials on    │  │ trials on    │
+   │ PARAM_SEARCH │  │ PARAM_SEARCH │  │ PARAM_SEARCH │
+   │_SPACE        │  │_SPACE        │  │_SPACE        │
+   │ Reports      │  │ Reports      │  │ Reports      │
+   │ saturation   │  │ saturation   │  │ saturation   │
+   └────┬─────────┘  └────┬─────────┘  └────┬─────────┘
+        │                  │                  │
+        └──────────┬───────┴───────┬──────────┘
+                   │               │
+            ┌──────▼──────┐  ┌────▼──────────┐
+            │  EVALUATOR  │  │ STAGE GATE    │
+            │  (scoring)  │  │ small→medium  │
+            │             │  │ →full→final   │
+            └──────┬──────┘  └────┬──────────┘
+                   │               │
+            ┌──────▼──────────────▼──────────┐
+            │   LEADERBOARD + ARCHIVE        │
+            │   (best candidates per island  │
+            │    with full trajectory files) │
+            └──────┬─────────────────────────┘
+                   │
+            ┌──────▼──────┐
+            │   REPLAN    │
+            │ ← island_health signals       │
+            │ → plan agent decides KEEP     │
+            │   / REFRESH / RETIRE&REPLACE  │
+            └─────────────┘
+```
+
+**Key self-evolving properties**:
+- **Islands evolve independently** — each branch explores a different algorithmic hypothesis without interference
+- **Agent-driven research grounds every mutation** — plan agent researches papers, mutation agent cites sources, parameter agent reports when to stop tuning and start mutating
+- **Closed-loop acceleration** — TPE saturation feedback tells the mutation agent *when* to structurally change, preventing wasted compute on plateaued architectures
 
 ### 3.1 The task spec contract
 
@@ -188,7 +260,7 @@ The pattern is visible in the file: the prompt contains the saturation signal, t
 
 AlphaEvolve (DeepMind, 2024–2025) is the closest published system and the **direct intellectual ancestor** of ml-evolve. It is a code-evolution framework that uses Gemini to mutate programs guided by automated evaluators, and has produced novel results in matrix multiplication, data-center scheduling, and Google-internal algorithm improvements.
 
-ml-evolve is the **first framework to take AlphaEvolve's evolutionary paradigm and systematically optimize it for ML tasks** — bringing multi-island evolution, LLM-driven mutation, and automated evaluation out of Google-scale infrastructure and into production ML engineering practice. Where AlphaEvolve focuses on general-purpose algorithm discovery (sorting, math, formal verification), ml-evolve targets the specific needs of ML optimization: noisy scalar evaluators, expensive training pipelines, and the need for auditable decision trajectories.
+ml-evolve is the **first framework to take AlphaEvolve's evolutionary paradigm and rebuild it as a self-evolving agent system for ML tasks** — bringing multi-island evolution, agent-driven research, and TPE-accelerated parameter search out of Google-scale infrastructure and into a production-ready agent architecture. Where AlphaEvolve focuses on general-purpose algorithm discovery (sorting, math, formal verification), ml-evolve targets the specific needs of ML optimization: noisy scalar evaluators, expensive training pipelines, and the need for a self-improving agent loop that can be audited and deployed.
 
 The shared lineage is real. Both systems:
 
@@ -207,6 +279,9 @@ The differences are where ml-evolve makes deliberate trade-offs:
 
 ### 5.2 What ml-evolve optimizes for
 
+ml-evolve redesigns the evolutionary paradigm as a **three-agent self-evolving system**, each agent optimized for a distinct role in the ML improvement loop:
+
+- **Three-agent architecture**: a Plan Agent (research + strategy), a Mutation Agent (Claude, structural edits), and a Parameter Agent (Optuna TPE, numerical optimization). This decoupling lets each agent specialize — the Plan Agent stays grounded in recent literature, the Mutation Agent focuses on semantically meaningful code changes, and the Parameter Agent accelerates convergence through Bayesian search with explicit saturation detection.
 - **Cost per run**: ml-evolve assumes a single workstation or a small cluster. A run is hours, not days; tens of candidates, not thousands. The two-level split (LLM = structure, TPE = parameters) is critical for this regime — you can't afford to spend LLM calls on hyperparameter sweeps.
 - **Single agent, no proprietary infra**: the orchestration is a 1,800-line Python script and a markdown skill. The agent can be Claude Code, an API call, a human, or any tool that can read a markdown file and edit Python.
 - **Auditability as a first-class concern**: every prompt is a file. AlphaEvolve's prompts are constructed inside its serving stack; for an external researcher reading a paper, they're a black box. For ml-evolve, the trajectory is on disk and reviewable line by line.
@@ -219,7 +294,7 @@ The differences are where ml-evolve makes deliberate trade-offs:
 - No mass parallelism. With `parallel_workers=1` (the default on a single GPU), the search is sequential.
 - No automatic code minimization / certification of improvements. A winning candidate is a Python file, not a theorem.
 
-The honest framing: ml-evolve is "AlphaEvolve adapted for industrial ML deployment — bringing multi-island evolution, two-level search, and auditable trajectories to the case where one ML engineer with one GPU wants to run algorithmic search on a real production problem, and needs to explain every step to their team."
+The honest framing: ml-evolve is "AlphaEvolve redesigned as a self-evolving agent system for industrial ML deployment — bringing multi-island evolution, agent-driven research, and TPE-accelerated parameter search to the case where one ML engineer with one GPU wants to run autonomous algorithmic improvement on a real production problem, and needs to explain every step to their team."
 
 ---
 
@@ -290,13 +365,13 @@ These are deliberate additions to handle failure modes that emerge when you run 
 - **Real-time iteration speed on small models.** ~12 experiments/hour is a tighter feedback loop than ml-evolve's typical generation cadence (1–3 generations/hour with web research).
 - **Designed for the LLM-pretraining domain it targets.** When the domain matches, every choice in AutoResearch is well-tuned for it; ml-evolve's generality has overhead.
 
-The honest framing: **AutoResearch and ml-evolve are siblings, not competitors.** AutoResearch optimizes for the case where the human research question is "what is the best small GPT recipe under 5 minutes of compute?" — a single, well-bounded, single-stream search. ml-evolve inherits AlphaEvolve's **multi-island evolutionary architecture** and optimizes for "what is the best algorithm in this ML problem space, given a noisy evaluator, a compute budget I have to account for, multiple plausible architectural families, and a need to explain every decision to my team six months from now?" Move from AutoResearch to ml-evolve when the search space is multimodal, the evaluator is expensive enough that you can't afford to run it at full cost on every candidate, the problem domain is not LLM pre-training, or you need an audit trail that survives the experiment.
+The honest framing: **AutoResearch and ml-evolve are siblings, not competitors.** AutoResearch optimizes for the case where the human research question is "what is the best small GPT recipe under 5 minutes of compute?" — a single, well-bounded, single-stream search. ml-evolve inherits AlphaEvolve's **multi-island evolutionary architecture** and builds it into a **self-evolving agent system** with three specialized agents. It optimizes for "what is the best algorithm in this ML problem space, given a noisy evaluator, a compute budget I have to account for, multiple plausible architectural families, and a need to explain every decision to my team six months from now?" Move from AutoResearch to ml-evolve when the search space is multimodal, the evaluator is expensive enough that you can't afford to run it at full cost on every candidate, the problem domain is not LLM pre-training, or you need an audit trail that survives the experiment.
 
 ---
 
-## 7. Summary: the first AlphaEvolve-based ML optimization framework
+## 7. Summary: a self-evolving agent system for ML
 
-ml-evolve is the first framework to take AlphaEvolve's multi-island evolutionary paradigm and systematically optimize it for **industrial ML deployment** — not as an academic research tool, but as a production-ready algorithm self-optimization engine.
+ml-evolve is the first framework to take AlphaEvolve's multi-island evolutionary paradigm and rebuild it as a **self-evolving agent system** for industrial ML deployment — not as an academic research tool, but as a production-ready autonomous agent architecture where three specialized agents (Plan, Mutation, Parameter) collaborate to continuously improve ML algorithms.
 
 Distilled, its design improvements over both reference points are:
 
@@ -323,16 +398,16 @@ The combined effect on the `recall-r3i9t8` case: +55% HR@20 in 9 generations / 3
 
 ---
 
-## 9. Closing
+## 9. Closing: self-evolving agents for production ML
 
-ml-evolve is the first framework to bring AlphaEvolve's evolutionary paradigm into the **industrial ML engineering practice** — a small, opinionated bet about how LLM-driven algorithm search should be engineered for production deployment:
+ml-evolve is a **self-evolving agent system** — the first framework to bring AlphaEvolve's evolutionary paradigm into a closed-loop agent architecture designed for industrial ML deployment:
 
-- decouple structural mutation from parameter search;
-- inherit multi-island evolution from AlphaEvolve for multimodal landscape coverage;
-- write every prompt to disk — audit trail as a first-class requirement, not an afterthought;
-- enforce a stage hierarchy and a research-grounded mutation protocol;
-- keep the framework body domain-free, and let the spec carry all the variance.
+- three specialized agents (Plan, Mutation, Parameter) collaborate in a self-improving loop;
+- multi-island evolution inherited from AlphaEvolve provides multimodal coverage and prevents premature convergence;
+- agent-driven research grounds every mutation in current literature, not stale priors;
+- TPE-accelerated parameter search with explicit saturation feedback tells each agent *when* to act;
+- every prompt is a file — audit trail as a first-class requirement, not an afterthought.
 
-It is not a replacement for AlphaEvolve at scale, nor for AutoResearch's tight five-minute loop on the nanoGPT-pretraining domain it targets. It is the right tool when you have a production ML optimization problem — a noisy scalar evaluator, a few hours of GPU, multiple plausible architectural families to compare, and a need to explain every decision to a teammate or a reviewer six months from now.
+It is not a replacement for AlphaEvolve at scale, nor for AutoResearch's tight five-minute loop on the nanoGPT-pretraining domain it targets. It is the right tool when you have a production ML optimization problem — a noisy scalar evaluator, a few hours of GPU, multiple plausible architectural families to compare, and a need for a self-evolving agent system that can explain every decision.
 
 The framework is open-sourced under the `ml-evolve` skill. Contributions, alternative task specs, and case studies welcome.
