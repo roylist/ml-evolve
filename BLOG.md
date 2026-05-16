@@ -17,7 +17,7 @@ Historically, that's been a human job. You read the papers, formulate hypotheses
 `ml-evolve` automates this loop. It's a **self-evolving agent system** that takes AlphaEvolve's evolutionary paradigm — treat algorithm search as code mutation — and rebuilds it as a production-ready framework for ML optimization. Instead of a single optimization algorithm, it orchestrates three specialized agents that collaborate to improve your model:
 
 | Agent | Job description | When it works |
-|---|---|---|---|
+|---|---|---|
 | **Plan Agent** | Reads papers, tech blogs, and leaderboards; writes a research plan with grounded hypotheses for each competing approach | Once at startup, then periodically to refresh stale directions |
 | **Mutation Agent** (powered by Claude) | Edits the core algorithm — architecture, loss function, training logic — based on performance data and research plan | Once per generation, per competing branch |
 | **Parameter Agent** (powered by Optuna TPE) | Runs Bayesian search over numerical parameters for each proposed architecture; reports when further tuning is pointless | Dozens of trials per architecture mutation |
