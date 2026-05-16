@@ -206,6 +206,54 @@ ml-evolve occupies a distinct niche that none of these cover alone.
 
 **Bottom line**: Traditional EA mutates blindly; ml-evolve **mutates with understanding**.
 
+---
+
+## How ml-evolve relates to Karpathy's AutoResearch
+
+[AutoResearch](https://github.com/karpathy/autoresearch) (March 2026) is Andrej Karpathy's minimalist framework where an LLM agent autonomously experiments on nanoGPT-style LLM training overnight.
+
+| Dimension | AutoResearch | ml-evolve |
+|---|---|---|
+| **Problem scope** | **Single domain**: LLM pre-training (nanoGPT, `val_bpb` metric). | **Domain-agnostic**: any ML problem with a scalar evaluator — retrieval, ranking, alpha factors, RL policies, prompt programs, etc. |
+| **Parameter search** | **None** — agent modifies hyperparameters ad-hoc in code. No structured HPO. | **TPE inner loop**: after each architecture mutation, Optuna TPE runs `param_trials` × structured parameter search. |
+| **Exploration strategy** | **Single-threaded greedy**: one agent, one file (`train.py`), accept/rollback per experiment. | **Multi-island**: independent branches with retire/refresh gates — dead ends are pruned; fresh directions are injected. |
+| **Compute gating** | **Fixed wall-clock** (5 min per experiment). No progressive evaluation. | **Staged promotion**: cheap (`small`) → medium → expensive (`final`). Only winners advance. |
+| **Mutation boundary** | **Full file**: agent modifies `train.py` anywhere, risking breakage. | **EVOLVE block only**: mutations are confined to the `EVOLVE` block; frozen code is protected. |
+| **Human role** | Writes `program.md` as a strategy document. | Writes `task_spec.yaml` as a structured spec; plan agent writes the research strategy autonomously. |
+| **Auditability** | Experiment log only. | **Every prompt is a file**: `mutation_request.md`, `plan_agent_request.md` — full trajectory is re-playable. |
+
+**Bottom line**: AutoResearch is a lightweight, single-file experiment loop for **one specific problem** (LLM training). ml-evolve is a **general-purpose evolutionary optimizer** with structured search, multi-island exploration, and compute gating — applicable to any algorithmic domain.
+
+---
+
+## How ml-evolve relates to DeepMind's AlphaEvolve
+
+[AlphaEvolve](https://deepmind.google/blog/alphaevolve-a-gemini-powered-coding-agent-for-designing-advanced-algorithms/) (May 2025) is Google DeepMind's evolutionary coding agent that pairs Gemini models with automated evaluators. ml-evolve is directly inspired by AlphaEvolve's paradigm, but targets a fundamentally different operating point.
+
+| Dimension | AlphaEvolve (DeepMind) | ml-evolve |
+|---|---|---|
+| **Infrastructure** | **Google-scale**: proprietary Gemini models (Flash + Pro), massive parallel evaluation, distributed program database. | **Single-GPU / laptop**: runs with any code-editing LLM, local evaluator, no distributed infrastructure. |
+| **Parameter optimization** | **LLM-only**: LLM is the sole evolutionary operator — architecture and parameter changes happen implicitly in the diff. | **Two-level explicit**: Claude mutates architecture; Optuna TPE handles parameter search in a dedicated inner loop — the two don't fight. |
+| **Search strategy** | **MAP-Elites + island model**: partitions solution space by behaviour characteristics. Full distributed population management. | **Simple island model**: per-branch hypothesis with retire/refresh. Lightweight and easy to inspect. |
+| **Mutation scope** | **Full-program diff**: LLM generates targeted diffs anywhere in the code, guided by natural-language context from past evaluations. | **EVOLVE block only**: mutations are constrained to a single `EVOLVE` block; everything else is frozen — lower risk, easier review. |
+| **Compute & accessibility** | **Not user-installable**: requires DeepMind's internal infrastructure and Gemini API quota. | **Fully open-source**: `pip install` + a `task_spec.yaml` = you're running. Works with any LLM that edits code. |
+| **Target use-case** | **Scientific discovery**: solving open math problems, designing novel algorithms from scratch. | **Algorithm optimization**: evolving existing ML architectures to maximize a domain-specific scalar metric. |
+| **Population management** | MAP-Elites behaviour grid for maintaining niche diversity. | Simple tournament selection + archive within each island. |
+| **Codebase complexity** | Distributed system, 4 async components. | Single `evolve.py` runner (~76 KB), one `openevolve_local.py` helper. |
+
+**Key design divergence — the LLM's role**:
+
+```
+AlphaEvolve:       LLM ───────→ (architecture + parameters) in one shot
+                            (LLM is the ONLY evolutionary operator)
+
+ml-evolve:  Claude mutates architecture ──→ TPE tunes parameters
+             ↑                                    ↑
+        (semantic, paper-grounded)       (structured, sample-efficient)
+```
+
+AlphaEvolve treats the LLM as a universal evolutionary operator — it generates structure changes and parameter tweaks simultaneously in a single diff. ml-evolve splits these responsibilities: Claude handles the "what to change" (architecture, grounded in research), and TPE handles the "how to tune it" (parameters, via structured Bayesian optimization). This decoupling makes each search level independently auditable and easier to debug.
+
 ### When to use what
 
 | Scenario | Use |
@@ -215,6 +263,8 @@ ml-evolve occupies a distinct niche that none of these cover alone.
 | Prototype a new algorithm idea | ml-evolve — let Claude + TPE explore the design space |
 | Tune a production model incrementally | ml-evolve — constrain `allowed_mutations` to safe axes |
 | Generate code without evaluation loop | AutoGPT, Claude Code |
+| Overnight LLM training experimentation | Karpathy's AutoResearch |
+| Solve open scientific problems | AlphaEvolve (if you have Google-scale resources) |
 
 ---
 
