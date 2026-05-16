@@ -50,7 +50,7 @@ The system operates as three coordinated agent layers, each with a distinct resp
 
 | Component | Input | Output | Trigger |
 |---|---|---|---|
-| **Plan Agent** | Leaderboard snapshot, per-island branch health | `research_plan.md` with grounded hypotheses per island | Run init + periodic replan |
+| **Plan Agent** | Leaderboard snapshot, per-island branch health | a research plan document with grounded hypotheses per island | Run init + periodic replan |
 
 The Plan Agent reads recent papers and conference proceedings, then writes a research plan. Each island gets its own hypothesis (e.g., "does a transformer-based encoder outperform an MLP?"), kill criteria, and model family hints. The plan is a markdown file — editable, version-controllable, auditable.
 
@@ -136,34 +136,31 @@ The file is the **only** way information enters the loop. The skill explicitly r
 
 ### 3.2 The eight-step loop
 
-```
-┌──────────────────────────────────────────────────────────────────────────────┐
-│ 1. status     →  verify python, evaluator.py, initial_program.py exist        │
-│ 2. init       →  state.json, candidates/, islands, seed working candidate     │
-│ 3. plan       →  plan_agent_request.md  →  agent writes research_plan.md       │
-│ ╔══════════════════  per generation  ══════════════════╗                       │
-│ ║ 4. select     →  pick parent, write mutation_request.md                   ║   │
-│ ║ 5. mutate     →  agent edits EVOLVE block of next_candidate.py            ║   │
-│ ║ 6. param-batch→  Optuna TPE × N trials at stage `small`                   ║   │
-│ ║ 7. promote    →  every K steps, re-eval top-K at stage `medium`/`full`    ║   │
-│ ║ 7'. replan    →  every M steps, retire/refresh/keep per island            ║   │
-│ ╚════════════════════════════════════════════════════════════════════════════╝   │
-│ 8. stop       →  iterations / target_score / patience trigger                 │
-└──────────────────────────────────────────────────────────────────────────────┘
-```
+At a high level, the system runs through these phases:
 
-### 3.3 Why every prompt is a file
+1. **Setup** — verify the environment, initialize the run directory, create the island structure.
+2. **Plan** — the Plan Agent reads the task spec and leaderboard, researches current literature, and writes a research plan with one hypothesis per island.
+3. **Per-generation loop** (repeated until budget exhausted):
+   - **Select & Mutate** — for each island, pick the best-performing parent candidate and ask the Mutation Agent to propose a structural improvement (new architecture, loss function, training technique).
+   - **Parameter search** — run Optuna TPE trials on the new architecture to find optimal numerical parameters.
+   - **Promote** (every K rounds) — re-evaluate top candidates on a more expensive evaluation stage to catch overfitting.
+   - **Replan** (every M rounds) — check branch health per island; retire dead ends, refresh stalled branches, inject new directions.
+4. **Stop** — when iteration budget, target score, or patience threshold is reached.
 
-There's no hidden API call inside the loop. Instead, every piece of context the agent receives is written to disk as a markdown file:
+The key insight: every decision in this loop is recorded as a readable file. You can replay why any choice was made, six months later, without needing to re-run anything.
 
-- **`plan_agent_request.md`** — contains the leaderboard snapshot, per-island top scores, branch health metrics, and the current research plan. The plan agent reads this, does web research, and writes an updated `research_plan.md`.
-- **`mutation_request.md`** — contains the parent's code path, its performance data, prior TPE saturation stats, and the relevant slice of the research plan. The mutation agent reads this and edits the candidate.
-- **`history.jsonl`** — every evaluation result, every TPE trial, every promotion event. Append-only, machine-readable.
+### 3.3 Why every decision is auditable
 
-This design has two practical benefits:
+Every piece of context the agents see is written to disk as a plain-text file — not buried in an API log or a database. This means:
 
-1. **Full audit trail.** Six months from now, you can ask "why did we abandon branch_1?" and the answer is sitting in a markdown file in the run directory. You can replay the exact context that drove every decision.
-2. **Engine independence.** The system doesn't care which LLM reads the files. Claude, GPT, an open-source model, or even a human manually editing the candidate — they all work without changing a line of orchestration code.
+- **The Plan Agent’s research memo**: a file containing the leaderboard, per-island health metrics, and the current strategy. The agent reads this, does web research, and writes an updated strategy document.
+- **The Mutation Agent’s brief**: a file containing the parent candidate’s performance, saturation signals from the last parameter search, and the relevant slice of the research plan. The agent reads this and edits the candidate code.
+- **The evaluation log**: every score, every trial, every promotion event — append-only, machine-readable.
+
+Two practical benefits:
+
+1. **Full audit trail.** Six months from now, you can ask "why did we abandon branch 1?" and the answer is sitting in a plain-text file in the run directory. You can replay the exact context that drove every decision.
+2. **Engine independence.** The system doesn’t care which LLM reads the files. Claude, GPT, an open-source model, or even a human manually editing the code — they all work without changing a line of orchestration code.
 
 ### 3.4 Islands and replan
 
@@ -196,7 +193,7 @@ So saturation is the explicit signal for *when* to spend an architectural mutati
 
 ### 3.6 Stage promotion
 
-Five stages by convention: `smoke / small / medium / full / final`. The evaluator must dispatch on the `stage` argument and return a `score`. Candidates evaluated at `small` carry their score and metrics; when `promote` triggers, the top-K per island are re-evaluated at `medium`. Promoted rows land in the same `history.jsonl` with mode `promote_small_to_medium`, distinguishable from `tpe_param_trial` rows.
+The system uses multiple evaluation tiers, typically: a quick smoke test, a small-scale evaluation, a medium-scale validation, and a full final evaluation. The evaluator knows which stage it’s running and adjusts its protocol accordingly (less data, fewer epochs for early stages). When the promotion gate triggers, top candidates from the cheap stage are re-evaluated at the next tier. This catches architectures that look good on small data but degrade at scale — early and cheaply.
 
 This is critical: a structural mutation that looks great at `small` may fail at `medium` because the small stage favors low-data regimes. Promotion gates surface that misalignment early and cheaply.
 
@@ -286,7 +283,7 @@ Both ml-evolve and AutoResearch agree on:
 
 - The agent is the **proposer**, not the orchestrator. A small Python harness runs the loop.
 - Instructions live in **markdown files**, not in a hidden system prompt — the human programs the agent through readable, version-controllable text.
-- A **frozen evaluation contract** (AutoResearch: `prepare.py` + `val_bpb`; ml-evolve: `evaluator.py` + `score`) prevents the agent from cheating its own metric.
+- A **frozen evaluation contract** (AutoResearch: fixed data script + single metric; ml-evolve: dedicated evaluator function + user-defined metric) prevents the agent from cheating its own metric.
 - **Wall-clock economy** matters: experiments must be bounded so the agent can iterate many times overnight rather than burn a night on one run.
 - **Reproducibility-by-disk**: experiments produce artifacts that survive the session.
 
@@ -295,7 +292,7 @@ Both ml-evolve and AutoResearch agree on:
 | Dimension | AutoResearch | ml-evolve |
 |---|---|---|
 | Domain | LLM pretraining on a fixed dataset | Domain-agnostic — retrieval, ranking, tabular, RL, prompt programs, schedulers |
-| Editable surface | The entire `train.py` (model + optimizer + loop) | The `EVOLVE` block of `next_candidate.py` (model + algorithm); `evaluator.py` is frozen |
+| Editable surface | The entire training script (model + optimizer + loop) | Only the algorithm core (architecture, loss, training logic); the evaluation pipeline is frozen |
 | Search topology | Single sequential stream | Multi-island population (typically 3) with archive |
 | Diversity mechanism | Implicit (agent self-selects directions) | Explicit (islands + replan with KEEP / REFRESH / RETIRE & REPLACE per island) |
 | Parameter vs. structural search | Conflated — agent proposes both | Decoupled: agent does structure, Optuna TPE does parameters within each structure |
@@ -303,10 +300,10 @@ Both ml-evolve and AutoResearch agree on:
 | Cost-aware promotion | None — every run is full 5 min | Promotion gates: top-K from `small` re-evaluated at `medium`/`full` |
 | Decision unit | Keep-or-discard a single run | Population update with archive, elite selection ratio, exploitation ratio |
 | Halt criteria | Run overnight / human kill | Explicit `iterations` / `target_score` / `patience` |
-| State persistence | Git commits + run artifacts | `state.json` + `history.jsonl`, resumable across sessions/machines |
-| Research grounding | Whatever `program.md` says | Mandatory web-research section in every mutation prompt, with named source categories and citation requirements |
+| State persistence | Git commits + run artifacts | Full serialized state, resumable across sessions and machines |
+| Research grounding | Whatever the human-written strategy document says | Mandatory web-research section in every mutation prompt, with named source categories and citation requirements |
 | Metric | `val_bpb` (single scalar) | User-defined primary score, but every evaluation may report a full metric dict |
-| Loop driver | Shell loop calling the agent | `evolve.py` subcommands (`init / plan / select / param-batch / promote / replan / run-loop`) |
+| Loop driver | Shell loop calling the agent | Modular Python commands, one per phase |
 
 ### 6.4 What ml-evolve optimizes relative to AutoResearch
 
@@ -322,11 +319,11 @@ These are deliberate additions to handle failure modes that emerge when you run 
 
 5. **Web research is enforced per mutation, not delegated to the agent's discretion.** AutoResearch can ask for research in `program.md`, but it's a request. ml-evolve's mutation prompt has a *required* "Research Before Editing" section that names specific source categories (Chinese AI tech blogs, top-tier conferences, Kaggle writeups), demands 2–3 independent citations per structural decision, and rejects mutations that aren't grounded in 2024–2025 evidence. This is the single most important factor in mutations not drifting to the agent's training-data priors.
 
-6. **Domain-agnostic by construction.** AutoResearch is purpose-built for LLM pretraining. To adapt it to a recommender task, you would rewrite `prepare.py`, `train.py`, the metric, and most of `program.md`. ml-evolve was designed so that swapping `task_spec.yaml`, `evaluator.py`, and `initial_program.py` is enough — the framework body never changes.
+6. **Domain-agnostic by construction.** AutoResearch is purpose-built for LLM pretraining. To adapt it to a recommender task, you would rewrite `prepare.py`, `train.py`, the metric, and most of `program.md`. ml-evolve was designed so that swapping the task specification, the evaluator function, and the initial candidate program is enough — the framework body never changes.
 
-7. **Resumability across sessions and machines.** AutoResearch's state lives in git commits on `train.py` plus run logs. ml-evolve's lives in `state.json` (population, archive, TPE saturation, replan history) and `history.jsonl` (every evaluation ever). You can kill the run, restart on a different machine, and pick up exactly where you left off. This matters when overnight = "spot-instance overnight."
+7. **Resumability across sessions and machines.** AutoResearch’s state lives in git commits and run logs. ml-evolve’s state is fully serialized — population, archive, saturation metrics, evaluation history, everything. You can kill the run, restart on a different machine, and pick up exactly where you left off. This matters when your overnight run is on a spot instance.
 
-8. **Industrial-grade audit trail.** Every prompt is a file on disk — `mutation_request.md`, `plan_agent_request.md`, `research_plan.md`. AutoResearch keeps experiment logs; ml-evolve keeps the complete decision context, reviewable line by line. This is not a nice-to-have — it's required for deployment in production ML pipelines where every algorithmic decision must be explainable.
+8. **Industrial-grade audit trail.** Every decision in the loop is saved as a readable file — the plan agent’s research memo, the mutation agent’s brief, the evaluation results. AutoResearch keeps experiment logs; ml-evolve keeps the complete decision context, reviewable line by line. This is not a nice-to-have — it’s required for deployment in production ML pipelines where every algorithmic decision must be explainable.
 
 ### 6.5 Where AutoResearch is stronger
 
@@ -363,7 +360,7 @@ The result, in one real run: a 53% improvement in the primary metric, 54 candida
 - **Verifier-free.** ml-evolve assumes a noisy scalar evaluator. It cannot certify correctness of evolved code (no formal verification, no test-suite-as-evaluator pattern). Adding a fixed regression test as a hard gate before scoring would be a natural extension.
 - **Single-machine assumption.** Distributed runs require external orchestration; the current `parallel_workers` is for in-process TPE concurrency only.
 - **Plan agent latency.** Web research per replan is the slowest step. Caching searches across runs (and across users for the same task spec) would help.
-- **No cross-run learning.** Each run starts cold. A `priors/` directory of `mutation_request.md` + outcome pairs across past runs would let the agent learn from prior failures on this task.
+- **No cross-run learning.** Each run starts cold. A persistent store of past mutation outcomes would let the agent learn from prior failures on this task.
 - **Bench coverage.** The framework has been validated on retrieval, ranking, and a handful of tabular tasks. Coverage on RL, prompt-program, and scheduler tasks is theoretical, not yet measured.
 
 ---
