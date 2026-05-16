@@ -166,6 +166,58 @@ EVOLVE_PROJECT_DIR=$(pwd) \
 
 ---
 
+## How ml-evolve differs from "auto" approaches
+
+A natural question: *isn't this just AutoML / AutoGPT / evolutionary NAS?*  
+ml-evolve occupies a distinct niche that none of these cover alone.
+
+### vs. AutoML frameworks (AutoGluon, auto-sklearn, H2O)
+
+| Dimension | AutoML frameworks | ml-evolve |
+|---|---|---|
+| **Search space** | Fixed model zoo (RF, XGB, MLP, …). Cannot invent architectures. | Claude proposes **novel architectures** grounded in recent papers — not from a pre-defined gallery. |
+| **Optimization level** | Model selection + HPO only. | **Two-level**: Claude mutates the architecture; Optuna TPE tunes its parameters. |
+| **Compute strategy** | Train all candidates (often ensemble). | **Stage promotion**: cheap → expensive — only winners advance. |
+| **Diversity** | Ensembling for final model. | **Island branching** during search — prevents premature convergence on multimodal loss landscapes. |
+| **Problem scope** | Tabular / CV / NLP with well-known families. | **Any domain** with a scalar evaluator: retrieval, ranking, alpha factors, RL policies, prompt programs, schedulers. |
+
+**Bottom line**: AutoML picks from what exists; ml-evolve **invents what doesn't**.
+
+### vs. General-purpose coding agents (AutoGPT, Claude Code, etc.)
+
+| Dimension | Coding agents | ml-evolve |
+|---|---|---|
+| **Mutation scope** | Entire codebase — high risk of breakage. | **Evolve-only**: mutations are confined to the `EVOLVE` block. Everything else is frozen. |
+| **Parameter tuning** | None (or ad-hoc). | **TPE batch** runs tens of structured trials after each mutation — separating architecture from parameter search. |
+| **Evaluation rigor** | Single run, single split. | **Staged, gated evaluation**: cheap proxy → medium validation → final test. No data leakage. |
+| **Search strategy** | Reactive ("improve this code"). | **Research plan** — each island has a hypothesis, kill criteria, and a grounded trajectory from papers / leaderboards. |
+| **Reproducibility** | Hard — each run depends on LLM state. | **Every mutation is a file**: `mutation_request.md` captures the exact context that drove the edit. Fully auditable. |
+
+**Bottom line**: Coding agents act, then see if it works. ml-evolve **plans, mutates, tunes, and gates** — a structured optimization loop, not a single-shot generation.
+
+### vs. Traditional evolutionary algorithms (NEAT, Deep GA, regularized evolution)
+
+| Dimension | Traditional EA | ml-evolve |
+|---|---|---|
+| **Mutation operator** | Hand-crafted (add/remove node, perturb weight). | **LLM-driven** — semantically aware mutations that understand the algorithm's logic. |
+| **Parameter crossover** | Often coupled with architectural mutation. | **Decoupled**: Claude mutates structure; TPE handles parameters in a dedicated inner loop. |
+| **Domain knowledge** | None — blind mutation. | **Plan agent** researches papers and writes grounded hypotheses per branch. |
+| **Search landscape** | Single population. | **Multi-island** with retire/refresh — independent branches explore competing ideas in parallel. |
+
+**Bottom line**: Traditional EA mutates blindly; ml-evolve **mutates with understanding**.
+
+### When to use what
+
+| Scenario | Use |
+|---|---|
+| Quick HPO on a known model class | Optuna / Hyperopt directly |
+| Standard tabular / CV benchmark | AutoGluon, auto-sklearn |
+| Prototype a new algorithm idea | ml-evolve — let Claude + TPE explore the design space |
+| Tune a production model incrementally | ml-evolve — constrain `allowed_mutations` to safe axes |
+| Generate code without evaluation loop | AutoGPT, Claude Code |
+
+---
+
 ## Why this design
 
 - **Skill body is fixed.** No tuning advice in `SKILL.md`. All scenario
