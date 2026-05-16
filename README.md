@@ -2,7 +2,7 @@
 
 > **The first ML optimization framework built on AlphaEvolve's paradigm** — a domain-agnostic, industrial-grade algorithm self-optimization engine that evolves ML algorithms autonomously, not just searches hyperparameters.
 >
-> **⚡ Zero config, runs on first try** — ml-evolve is a drop-in skill for **Claude Code, Codex, and Cursor**. Write one YAML file, drop in two Python files, invoke the skill. No Docker, no cloud services, no credential chains. It just runs.
+> **⚡ Zero config, runs on first try** — ml-evolve is a drop-in skill for **Claude Code, Codex, and Cursor**. Write one YAML file, or just natural language, invoke the skill. No Docker, no cloud services, no credential chains. It just runs.
 >
 > **🧠 Multi-agent by design** — combines Claude's three-agent orchestration (Plan Agent researches papers, Mutation Agent edits code, Parameter Agent tunes parameters) into a single self-improving loop.
 
