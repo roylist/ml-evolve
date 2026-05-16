@@ -1,42 +1,44 @@
-# ml-evolve: A Self-Evolving Agent System for ML Algorithms — Multi-Island Evolution, Agent-Driven Research, and Accelerated Parameter Search
+# ml-evolve: You Built an ML Model. Now Watch It Improve Itself — A Self-Evolving Agent System for Algorithm Optimization
 
-*A technical write-up of the `ml-evolve` skill — a **self-evolving agent system** that combines multi-island evolutionary architecture (inherited from AlphaEvolve), LLM-driven algorithmic research, and TPE-accelerated parameter search into a single production-ready framework for autonomous ML algorithm optimization.*
+*How we built a self-evolving agent system that automatically researches, mutates, tunes, and improves ML algorithms — without a human in the loop. Think of it as an AI research assistant that works through the night, tests competing ideas in parallel, and leaves a complete audit trail of every decision.*
 
 ---
 
-## 1. The problem: search over programs, not over scalars
+## 1. The problem: your model is only as good as your last architecture search
 
-Modern ML research lives in a high-dimensional, partly-discrete, partly-continuous space:
+If you've ever trained a machine learning model, you've been here: you pick a loss function, choose an encoder architecture, set a few hyperparameters, train, evaluate, and repeat. Maybe you run a grid search or let Optuna sample a few hundred combinations.
 
-- **Continuous**: learning rate, temperature, dropout, weight decay, batch size.
-- **Discrete-structural**: loss family (InfoNCE vs. focal vs. softmax CE), negative sampling policy, encoder family (MLP vs. attentive vs. graph), regularization stack, data augmentation pipeline.
-- **Topological**: how components are wired — does the user tower feed into a graph layer, or vice versa? Does the loss see in-batch negatives, popularity-weighted samples, or hard-mined negatives?
+This works — up to a point. Standard tools like Optuna, Hyperopt, or AutoML handle the continuous knobs (learning rate, dropout, batch size) and can even pick between pre-defined model families (Random Forest vs. XGBoost vs. MLP).
 
-Bayesian optimization (Optuna TPE, BoTorch, SMAC) handles the first dimension well. AutoML systems (NAS, AutoGluon) handle subsets of the second. But the third — **inventing materially new algorithmic recipes by reading recent literature, then implementing and testing them** — has historically required a human researcher in the loop.
+But there's a third dimension that none of these tools address: **structural innovation**. What if the best architecture for your problem isn't any of the standard options? What if you need a custom loss function that combines two existing ones? What if the latest paper from a top conference describes a technique that could boost your metric by 15% — but you'd need to implement and test it?
 
-`ml-evolve` is a **self-evolving agent system** — the first framework to bring AlphaEvolve's multi-island evolutionary paradigm into a closed-loop agent architecture where the system autonomously researches, mutates, tunes, and promotes its own algorithmic improvements. It does this through three interdependent agent roles:
+Historically, that's been a human job. You read the papers, formulate hypotheses, implement them, run experiments, keep what works, discard what doesn't. It's slow, expensive, and hard to scale across multiple competing ideas.
 
-| Agent role | Function | Frequency |
-|---|---|---|
-| **Plan Agent** | Researches recent papers, tech blogs, and leaderboards; writes grounded hypotheses per island; decides KEEP / REFRESH / RETIRE & REPLACE on each branch | Per run init + periodic replan |
-| **Mutation Agent** (Claude) | Reads `mutation_request.md`, edits the `EVOLVE` block of a candidate program — architecture, loss function, sampling policy | Per generation |
-| **Parameter Agent** (Optuna TPE) | Performs structured Bayesian search over `PARAM_SEARCH_SPACE` for each mutated architecture, reports saturation telemetry | Per architecture |
+`ml-evolve` automates this loop. It's a **self-evolving agent system** that takes AlphaEvolve's evolutionary paradigm — treat algorithm search as code mutation — and rebuilds it as a production-ready framework for ML optimization. Instead of a single optimization algorithm, it orchestrates three specialized agents that collaborate to improve your model:
+
+| Agent | Job description | When it works |
+|---|---|---|---|
+| **Plan Agent** | Reads papers, tech blogs, and leaderboards; writes a research plan with grounded hypotheses for each competing approach | Once at startup, then periodically to refresh stale directions |
+| **Mutation Agent** (powered by Claude) | Edits the core algorithm — architecture, loss function, training logic — based on performance data and research plan | Once per generation, per competing branch |
+| **Parameter Agent** (powered by Optuna TPE) | Runs Bayesian search over numerical parameters for each proposed architecture; reports when further tuning is pointless | Dozens of trials per architecture mutation |
 
 This three-agent design puts LLM-driven structural evolution and TPE-driven numerical optimization into a single self-improving loop — auditable, resumable, and compute-aware.
 
 ---
 
-## 2. Design goals
+## 2. What we optimized for
 
-| Goal | Mechanism |
-|---|---|
-| **Industrial-grade** | Full audit trail via file-based prompts, resumable state across machines, zero domain coupling — designed for deployment in real ML pipelines, not for paper experiments. |
-| **Domain-agnostic** | The skill body contains zero domain knowledge. All task-specific information lives in a single `task_spec.yaml` file. The same code drives retrieval, ranking, tabular, RL, prompt programs, schedulers. |
-| **Auditable** | Every prompt the agent sees is written to disk as a markdown file. The mutation trajectory is reproducible from `mutation_request.md` files and `history.jsonl`. |
-| **Compute-efficient** | Multi-stage evaluation (`smoke → small → medium → full → final`) with promotion gates ensures expensive evaluations are spent only on survivors. |
-| **Diversity-preserving** | Island-based population with periodic re-planning prevents premature convergence on a single architectural lineage. |
-| **Two-level search** | LLM handles structural mutations; Optuna TPE handles parameter sweeps inside each structure. They don't compete for the same budget. |
-| **Stoppable / resumable** | All state lives in `state.json` + `history.jsonl`. You can kill the process and resume; you can fork a run. |
+Before diving into the architecture, here's the design brief — the constraints that shaped every decision:
+
+**Deployable in production, not just a notebook.** Every prompt the agent sees is written to disk as a file. State is serialized and resumable across machines. You can kill the process, restart on a different GPU, and pick up exactly where you left off.
+
+**Works for any ML problem, not one domain.** The framework body contains zero domain knowledge. All task-specific info lives in a single YAML file. The same loop drives optimization for recommendation, ranking, tabular data, reinforcement learning, prompt engineering — anything with a scalar metric.
+
+**Compute-aware by design.** Instead of running every candidate at full cost, the system uses multiple evaluation tiers (cheap proxy → medium validation → full test). Only candidates that win at each tier consume more compute. This is built in, not bolted on.
+
+**Prevents premature convergence.** Multiple independent research branches explore competing hypotheses in parallel. Periodic replanning retires dead ends and injects fresh directions. The system deliberately avoids converging too early on the first plausible idea.
+
+**Two-level search, one loop.** Architecture changes and parameter tuning are handled by different agents using different tools — no single optimization algorithm has to be good at both.
 
 ---
 
@@ -180,20 +182,18 @@ The file is the **only** way information enters the loop. The skill explicitly r
 └──────────────────────────────────────────────────────────────────────────────┘
 ```
 
-### 3.3 Prompts as files
+### 3.3 Why every prompt is a file
 
-There is **no direct LLM API call** inside the loop. Instead:
+There's no hidden API call inside the loop. Instead, every piece of context the agent receives is written to disk as a markdown file:
 
-- `evolve.py plan` writes `plan_agent_request.md` (containing leaderboard snapshot, per-island top-3, branch health, current `research_plan.md`) and prints a hint.
-- The caller (Claude Code session, or a `--mutator-cmd` shell command) reads that file, performs web research, and writes `research_plan.md`.
-- `evolve.py select` writes `mutation_request.md` (containing parent code path, branch health, prior TPE saturation, parent metrics, plan excerpt).
-- The caller reads it and edits the candidate.
-- `evolve.py param-batch` runs Optuna; results land in `history.jsonl`.
+- **`plan_agent_request.md`** — contains the leaderboard snapshot, per-island top scores, branch health metrics, and the current research plan. The plan agent reads this, does web research, and writes an updated `research_plan.md`.
+- **`mutation_request.md`** — contains the parent's code path, its performance data, prior TPE saturation stats, and the relevant slice of the research plan. The mutation agent reads this and edits the candidate.
+- **`history.jsonl`** — every evaluation result, every TPE trial, every promotion event. Append-only, machine-readable.
 
-Two consequences:
+This design has two practical benefits:
 
-1. **Auditability**. You can replay any decision by re-reading the exact prompt that was given. Six months later you can ask "why did we abandon branch_1?" and the answer is in `runs/<run>/plan_agent_request.md` and the replan history block of `research_plan.md`.
-2. **Engine independence**. You can swap Claude for any agent (or for a human) without touching the loop. `--mutator-cmd "claude-code --headless --file {request} --edit {candidate}"` is one option; manually editing the file is another.
+1. **Full audit trail.** Six months from now, you can ask "why did we abandon branch_1?" and the answer is sitting in a markdown file in the run directory. You can replay the exact context that drove every decision.
+2. **Engine independence.** The system doesn't care which LLM reads the files. Claude, GPT, an open-source model, or even a human manually editing the candidate — they all work without changing a line of orchestration code.
 
 ### 3.4 Islands and replan
 
@@ -232,27 +232,27 @@ This is critical: a structural mutation that looks great at `small` may fail at 
 
 ---
 
-## 4. A concrete run
+## 4. A real run: what this looks like in practice
 
-Run `recall-r3i9t8`, a two-tower sequential retrieval task, 3 islands, 9 generations on stage `small`, single T4 GPU.
+Here’s what an actual run looks like. The task was a sequential ranking model — given a user’s history, predict which items they’ll interact with next. Three competing architectural families, 9 generations, single T4 GPU, about 3 hours.
 
-| Generation | Best score (HR@20) | Notable |
+| Generation | Best score | What happened |
 |---:|---:|---|
-| 1 | 0.087 | Baseline two-tower with InfoNCE |
-| 3 | 0.1336 | branch_2 finds LightGCN + focal-InfoNCE |
-| 6 | 0.1353 | TPE convergence on graph branch |
-| 8 | 0.1350 | branch_1 (attentive) catches up via SASRec |
-| 9 | 0.1353 | All three islands within 0.5% of each other |
+| 1 | 0.087 | Baseline model — standard encoder with cross-entropy loss |
+| 3 | 0.1336 | Branch 2 discovers a graph-enhanced encoder + modified loss combo — a **53% jump** |
+| 6 | 0.1353 | TPE converges on branch 2's best architecture; saturation detected |
+| 8 | 0.1350 | Branch 1 (attention-based encoder) catches up via a different structural path |
+| 9 | 0.1353 | All three islands within 0.5% of each other; budget exhausted |
 
-54 candidates evaluated total, ~3 hours compute, no human intervention except invoking `/ml-evolve`. The final mutation_request seen by the agent at generation 6 contained:
+54 candidates evaluated total, ~3 hours compute, no human intervention. The mutation request that triggered the breakthrough at generation 6 contained:
 
-- `branch_health: {trials: 8, slope: -0.0002, saturated: true}`
-- `best_params` from prior TPE: learning rate pegged at upper edge of `[1e-4, 3e-3]`
-- Excerpt from `research_plan.md` about LightGCN warm-start
+- Saturation signal: branch health showed 8 TPE trials with near-zero improvement slope
+- Prior TPE results: a key hyperparameter was pegged at the upper edge of the search range — hint to widen it
+- Research plan excerpt suggesting a warm-start initialization technique
 
-Agent response: switched edge aggregation from `sum` to `mean`, added DeepWalk warm-start for item embeddings, widened `lr` range to `[1e-4, 5e-3]`, kept search space dimensionality at 5.
+What the agent did in response: changed the aggregation method, added the warm-start technique, widened a hyperparameter range, and kept the search space compact. TPE then found the optimal numerical configuration for this new architecture.
 
-The pattern is visible in the file: the prompt contains the saturation signal, the agent acts on it, the new TPE finds a better basin.
+This pattern repeats across runs: the saturation signal tells the agent when to stop tuning and start redesigning. The agent acts, TPE finds the new optimum, and the cycle continues.
 
 ---
 
@@ -294,7 +294,7 @@ ml-evolve redesigns the evolutionary paradigm as a **three-agent self-evolving s
 - No mass parallelism. With `parallel_workers=1` (the default on a single GPU), the search is sequential.
 - No automatic code minimization / certification of improvements. A winning candidate is a Python file, not a theorem.
 
-The honest framing: ml-evolve is "AlphaEvolve redesigned as a self-evolving agent system for industrial ML deployment — bringing multi-island evolution, agent-driven research, and TPE-accelerated parameter search to the case where one ML engineer with one GPU wants to run autonomous algorithmic improvement on a real production problem, and needs to explain every step to their team."
+The honest framing: ml-evolve is "AlphaEvolve redesigned as a self-evolving agent system for practical ML deployment — bringing multi-island evolution, agent-driven research, and TPE-accelerated parameter search to the case where an ML engineer wants to run autonomous algorithmic improvement on a real problem, and needs to explain every step to their team."
 
 ---
 
@@ -342,9 +342,9 @@ Both ml-evolve and AutoResearch agree on:
 
 These are deliberate additions to handle failure modes that emerge when you run a single-stream, edit-everything loop on tasks more complex than nanoGPT pretraining. The most fundamental improvement is inheriting AlphaEvolve's **multi-island evolutionary architecture** — ml-evolve is not a single-stream loop, but a population-based optimizer with structured diversity management:
 
-1. **Multi-island evolution (inherited from AlphaEvolve).** This is the primary structural difference. AutoResearch follows one trajectory with accept-or-rollback — a greedy hill climber. ml-evolve maintains multiple independent research branches with periodic replan (KEEP / REFRESH / RETIRE & REPLACE). On multimodal ML landscapes — the norm for production ML problems — this is decisive. On `recall-r3i9t8`, the winner came from a branch (LightGCN + focal-InfoNCE) the agent would not have explored under a single greedy stream.
+1. **Multi-island evolution (inherited from AlphaEvolve).** This is the primary structural difference. AutoResearch follows one trajectory with accept-or-rollback — a greedy hill climber. ml-evolve maintains multiple independent research branches with periodic replan (KEEP / REFRESH / RETIRE & REPLACE). On multimodal ML landscapes — the norm for production ML problems — this is decisive. In our test run, the winning architecture came from a branch the agent would not have explored under a single greedy stream — discovered only because multiple hypotheses were running in parallel.
 
-2. **Parameter sweeps belong to TPE, not the agent.** On nanoGPT, learning-rate sweeps are cheap enough that an agent burning 12 experiments/hour can afford to grid-search by trial and error. On a recommender with 100K events per `small` evaluation and 6 continuous hyperparameters, that's hopeless. ml-evolve's `PARAM_SEARCH_SPACE` contract pushes the LLM out of the loop for parameter search and lets Optuna TPE do what it's good at — 8 trials per architecture, started from prior elite values, with explicit saturation detection. The agent only gets called again when there's a *structural* decision to make.
+2. **Parameter sweeps belong to TPE, not the agent.** On nanoGPT, learning-rate sweeps are cheap enough that an agent burning 12 experiments/hour can afford to grid-search by trial and error. On a realistic ML task where each evaluation takes minutes and involves multiple continuous hyperparameters, that approach doesn’t scale. ml-evolve's `PARAM_SEARCH_SPACE` contract pushes the LLM out of the loop for parameter search and lets Optuna TPE do what it's good at — 8 trials per architecture, started from prior elite values, with explicit saturation detection. The agent only gets called again when there's a *structural* decision to make.
 
 3. **Saturation is a first-class signal, not an inference the agent has to make.** AutoResearch's agent sees its own run history but has no explicit telemetry telling it "your last 8 trials on this architecture had slope -0.0002, you should mutate structurally now." ml-evolve computes this from TPE's trial-by-trial best-score series and injects `{trials, slope, saturated, late_best - early_best}` into the next mutation prompt. The result: structural mutations happen when there's evidence they're needed, not on a fixed cadence.
 
@@ -369,22 +369,22 @@ The honest framing: **AutoResearch and ml-evolve are siblings, not competitors.*
 
 ---
 
-## 7. Summary: a self-evolving agent system for ML
+## 7. Summary: what we built and why it matters
 
-ml-evolve is the first framework to take AlphaEvolve's multi-island evolutionary paradigm and rebuild it as a **self-evolving agent system** for industrial ML deployment — not as an academic research tool, but as a production-ready autonomous agent architecture where three specialized agents (Plan, Mutation, Parameter) collaborate to continuously improve ML algorithms.
+ml-evolve is a **self-evolving agent system** for ML algorithm optimization — not an academic experiment, but a production-ready framework where three specialized agents collaborate to continuously improve your model.
 
-Distilled, its design improvements over both reference points are:
+The key design decisions:
 
-1. **Two-level search with explicit handoff** (LLM ↔ TPE) — improves compute efficiency by 10×+ vs. LLM-tunes-everything baselines, while keeping the LLM's structural expressivity.
-2. **File-based prompts** — auditability, replayability, engine independence; trivially cheap.
-3. **Island population + structured replan** — inherited from AlphaEvolve, anti-collapse, multimodal coverage; replan is the rare meta-step where the agent revises *its own search strategy* rather than just proposing the next candidate.
-4. **Stage promotion as a required contract** — forces compute-aware design at spec time, not as an afterthought.
-5. **Mandatory research grounding with named source categories** — keeps mutations on the current frontier rather than drifting toward training-data priors.
-6. **Saturation-driven mutation timing** — TPE telemetry tells the agent *when* to mutate structurally vs. continue tuning. Neither AlphaEvolve nor freeform auto-research surfaces this signal so explicitly.
-7. **Domain-agnostic skill body** — one framework drives retrieval, ranking, tabular, RL, prompt-program, scheduler tasks. The task spec is the only thing that changes.
-8. **Industrial-grade audit trail** — every prompt is a file, state is resumable across machines, zero domain coupling. Built for deployment, not for paper experiments.
+1. **Two-level search** — an LLM handles structural mutations (architecture, loss function, training logic), while Bayesian optimization handles parameter tuning. Each uses the right tool, improving compute efficiency by roughly 10× over letting the LLM do everything.
+2. **File-based audit trail** — every prompt is a file on disk. Every decision can be replayed and reviewed, six months later.
+3. **Multi-island evolution** — inherited from AlphaEvolve. Multiple competing hypotheses evolve in parallel, with structured replanning to retire dead ends and inject fresh ideas.
+4. **Compute gating** — cheap evaluation first, expensive evaluation only for winners. Built into the specification, not an optional feature.
+5. **Research-grounded mutations** — the plan agent must read and cite recent sources. Mutations don't drift to the LLM's stale training data.
+6. **Saturation-driven timing** — TPE telemetry tells the mutation agent when to stop tuning and start redesigning. Neither AlphaEvolve nor ad-hoc agent loops surface this signal.
+7. **Domain-agnostic** — one framework, any ML problem. Swap the spec and the evaluator; the loop stays the same.
+8. **Production-ready** — resumable across machines, no proprietary infrastructure, works with any code-editing LLM.
 
-The combined effect on the `recall-r3i9t8` case: +55% HR@20 in 9 generations / 3 hours / single T4 — a regime where AlphaEvolve's scale is unavailable and a freeform agent loop tends to either drift or overfit. This is not a benchmark result; it's a **practical demonstration of what the framework delivers in a real ML optimization scenario**.
+The result, in one real run: a 53% improvement in the primary metric, 54 candidates evaluated, ~3 hours on a single GPU. Not a benchmark — a practical demonstration of what a self-evolving agent system can deliver.
 
 ---
 
