@@ -166,115 +166,127 @@ EVOLVE_PROJECT_DIR=$(pwd) \
 
 ---
 
-## How ml-evolve differs from "auto" approaches
+> For a full-length technical treatment with run traces and detailed design rationale, see [`BLOG.md`](BLOG.md).
 
-A natural question: *isn't this just AutoML / AutoGPT / evolutionary NAS?*  
-ml-evolve occupies a distinct niche that none of these cover alone.
+## Design philosophy: what ml-evolve optimizes for
 
-### vs. AutoML frameworks (AutoGluon, auto-sklearn, H2O)
+ml-evolve is not a single algorithm — it's an **optimization strategy** designed for a specific regime: a single researcher with one GPU, a noisy scalar evaluator, multiple plausible architectural families to compare, and a need to explain every decision to a teammate six months later.
 
-| Dimension | AutoML frameworks | ml-evolve |
-|---|---|---|
-| **Search space** | Fixed model zoo (RF, XGB, MLP, …). Cannot invent architectures. | Claude proposes **novel architectures** grounded in recent papers — not from a pre-defined gallery. |
-| **Optimization level** | Model selection + HPO only. | **Two-level**: Claude mutates the architecture; Optuna TPE tunes its parameters. |
-| **Compute strategy** | Train all candidates (often ensemble). | **Stage promotion**: cheap → expensive — only winners advance. |
-| **Diversity** | Ensembling for final model. | **Island branching** during search — prevents premature convergence on multimodal loss landscapes. |
-| **Problem scope** | Tabular / CV / NLP with well-known families. | **Any domain** with a scalar evaluator: retrieval, ranking, alpha factors, RL policies, prompt programs, schedulers. |
+Every design choice in the framework targets one of seven optimization points:
 
-**Bottom line**: AutoML picks from what exists; ml-evolve **invents what doesn't**.
+### 1. Two-level search with explicit handoff (LLM ↔ TPE)
 
-### vs. General-purpose coding agents (AutoGPT, Claude Code, etc.)
+**Problem**: Architecture search and hyperparameter tuning are different search problems — one is discrete and semantic, the other is continuous and numerical — but most auto-search systems conflate them.
 
-| Dimension | Coding agents | ml-evolve |
-|---|---|---|
-| **Mutation scope** | Entire codebase — high risk of breakage. | **Evolve-only**: mutations are confined to the `EVOLVE` block. Everything else is frozen. |
-| **Parameter tuning** | None (or ad-hoc). | **TPE batch** runs tens of structured trials after each mutation — separating architecture from parameter search. |
-| **Evaluation rigor** | Single run, single split. | **Staged, gated evaluation**: cheap proxy → medium validation → final test. No data leakage. |
-| **Search strategy** | Reactive ("improve this code"). | **Research plan** — each island has a hypothesis, kill criteria, and a grounded trajectory from papers / leaderboards. |
-| **Reproducibility** | Hard — each run depends on LLM state. | **Every mutation is a file**: `mutation_request.md` captures the exact context that drove the edit. Fully auditable. |
+**Optimization**: Claude mutates structure (model architecture, loss function, sampling policy). Optuna TPE handles parameter sweeps inside each structure. The two never compete for the same budget.
 
-**Bottom line**: Coding agents act, then see if it works. ml-evolve **plans, mutates, tunes, and gates** — a structured optimization loop, not a single-shot generation.
+TPE saturation telemetry (`{trials: 8, slope: -0.0002, saturated: true}`) is injected into the next mutation request, telling the agent *when* to make a structural change vs. run another parameter sweep. On the `recall-r3i9t8` case, this decoupling improved compute efficiency by ~10× relative to an LLM-tunes-everything baseline.
 
-### vs. Traditional evolutionary algorithms (NEAT, Deep GA, regularized evolution)
+### 2. File-based prompts
 
-| Dimension | Traditional EA | ml-evolve |
-|---|---|---|
-| **Mutation operator** | Hand-crafted (add/remove node, perturb weight). | **LLM-driven** — semantically aware mutations that understand the algorithm's logic. |
-| **Parameter crossover** | Often coupled with architectural mutation. | **Decoupled**: Claude mutates structure; TPE handles parameters in a dedicated inner loop. |
-| **Domain knowledge** | None — blind mutation. | **Plan agent** researches papers and writes grounded hypotheses per branch. |
-| **Search landscape** | Single population. | **Multi-island** with retire/refresh — independent branches explore competing ideas in parallel. |
+**Problem**: LLM-driven optimization loops are usually black boxes — the prompt that drove each mutation is lost after the API call.
 
-**Bottom line**: Traditional EA mutates blindly; ml-evolve **mutates with understanding**.
+**Optimization**: Every prompt to the agent is a markdown file written to disk (`plan_agent_request.md`, `mutation_request.md`). The trajectory is fully auditable and replayable. You can swap Claude for any agent (or a human) by changing the `--mutator-cmd`. Engine independence is a free side effect.
 
----
+### 3. Island population + structured replan
 
-## How ml-evolve improves on Karpathy's AutoResearch
+**Problem**: Single-population evolution converges to the first plausible lineage. On multimodal ML loss landscapes, this leaves major improvements undiscovered.
 
-[AutoResearch](https://github.com/karpathy/autoresearch) (March 2026) proved that an LLM agent can autonomously iterate on ML training code overnight. ml-evolve takes that same core insight — "let the LLM drive experimental iteration" — and generalizes it into a production-grade optimizer with several structural improvements:
+**Optimization**: Three parallel islands (configurable) each explore an independent research hypothesis. Periodic replan evaluates branch health and decides KEEP / REFRESH / RETIRE & REPLACE per island. This is the framework's anti-collapse mechanism — replan is the rare meta-step where the agent revises *its own search strategy* rather than just proposing the next candidate.
 
-| Where AutoResearch stops | How ml-evolve improves |
-|---|---|
-| **Single domain**: only LLM pre-training (nanoGPT, `val_bpb`). | **Any domain**: one `task_spec.yaml` adapts the same loop to retrieval, ranking, alpha factors, RL policies, prompt programs — anything with a scalar evaluator. |
-| **No parameter search**: the agent tweaks hyperparameters ad-hoc in code, no structured optimizer. | **TPE inner loop**: after each architecture mutation, Optuna TPE runs a dedicated parameter search — decoupling "what to change" from "how to tune it" doubles the optimization power per experiment. |
-| **Single-threaded greedy**: one agent, one file, accept-or-rollback. Dead ends waste experiments. | **Multi-island branching**: independent branches explore competing hypotheses in parallel, with retire/refresh gates that prune dead ends and inject fresh directions. |
-| **Flat experiment cost**: 5-minute wall-clock per run, regardless of quality. No progressive filtering. | **Staged promotion**: cheap (`small`) → medium → expensive (`final`). Only candidates that win at each stage consume more compute. Same total budget finds better solutions. |
-| **Full-file mutation**: agent rewrites `train.py` anywhere — high breakage risk, hard to review diffs. | **Constrained EVOLVE block**: mutations are confined to the `EVOLVE` block; frozen code is protected. Diffs are small, targeted, and reviewable. |
-| **Human writes strategy**: `program.md` is a free-text strategy document — no structure, no validation. | **Human writes spec, plan agent writes strategy**: `task_spec.yaml` is a validated schema; the plan agent researches papers and generates grounded hypotheses per branch autonomously. |
-| **Experiment log only**: hard to replay or audit why a specific change was made. | **Every prompt is a file**: `mutation_request.md`, `plan_agent_request.md` capture exact context driving each decision. Full trajectory is re-playable. |
+### 4. Stage promotion as a required contract
 
-**Key improvement**: AutoResearch proved the *concept* of LLM-driven experimental iteration. ml-evolve turns it into a **structured optimization engine** — replacing ad-hoc exploration with TPE parameter search, multi-island diversity, staged compute gating, and an extension point (`task_spec.yaml`) that makes the same loop work across any ML domain.
+**Problem**: Flat experiment budgets waste compute on low-quality candidates and miss misalignment between small-scale and full-scale performance.
+
+**Optimization**: Stages (`smoke / small / medium / full / final`) are a *required* field in the task spec, not an optional configuration. Promotion gates re-evaluate top-K at the next cost tier. A structural mutation that looks great on `small` but degrades at `medium` is caught early and cheaply.
+
+### 5. Mandatory research grounding
+
+**Problem**: LLMs mutate toward their training-data priors, not toward the current research frontier. Over multiple generations, the search drifts away from relevant recent work.
+
+**Optimization**: Every mutation prompt has a *required* "Research Before Editing" section that names specific source categories (Chinese & US tech-company blogs, top-tier conferences, Kaggle writeups), demands 2–3 independent citations per structural decision, and rejects mutations that aren't grounded in 2024–2025 evidence. This is the single most important factor in keeping mutations on the current frontier.
+
+### 6. Saturation-driven mutation timing
+
+**Problem**: Without explicit telemetry, the agent doesn't know when to stop tuning parameters and start mutating structure, or vice versa.
+
+**Optimization**: TPE's trial-by-trial best-score series is computed into `{trials, slope, saturated, late_best - early_best}` and injected into the next mutation prompt. Structural mutations happen when there's evidence they're needed (saturation detected), not on a fixed cadence. Neither AlphaEvolve nor freeform auto-research surfaces this signal so explicitly.
+
+### 7. Domain-agnostic skill body
+
+**Problem**: Most auto-search frameworks are purpose-built for one domain (LLM pre-training, tabular ML, NAS). Adapting them to a new domain requires rewriting core components.
+
+**Optimization**: The skill body contains zero domain knowledge. All task-specific information lives in `task_spec.yaml`. The same framework drives retrieval, ranking, tabular, RL, prompt-program, and scheduler tasks without touching `SKILL.md`, `evolve.py`, or any script. Swap `task_spec.yaml`, `evaluator.py`, and `initial_program.py` — that's it.
 
 ---
 
-## How ml-evolve improves on DeepMind's AlphaEvolve for ML optimization
+## Relationship to DeepMind's AlphaEvolve
 
-[AlphaEvolve](https://deepmind.google/blog/alphaevolve-a-gemini-powered-coding-agent-for-designing-advanced-algorithms/) (May 2025) pioneered the paradigm of using LLMs as evolutionary operators for general-purpose algorithm discovery — solving open math problems, finding faster sorting algorithms, etc. ml-evolve is directly inspired by this approach, but is specifically engineered for the ML optimization workflow, where the nature of the search problem differs fundamentally.
+[AlphaEvolve](https://deepmind.google/blog/alphaevolve-a-gemini-powered-coding-agent-for-designing-advanced-algorithms/) (May 2025) is the closest published system — a code-evolution framework using Gemini to mutate programs guided by automated evaluators. Both systems share the same lineage: treat algorithm search as code mutation, maintain a population with diversity controls, and iterate propose → evaluate → select.
 
-### 1. Two-level search designed for the ML optimization landscape
+The shared lineage is genuine, but AlphaEvolve and ml-evolve **optimize for different operating points**:
 
-ML optimization has a unique structure: architectural changes and hyperparameter tuning operate at different abstraction levels and respond to different signals. AlphaEvolve treats both as a single LLM-generated diff — the same operator handles structural redesign and numerical tweaking simultaneously.
-
-```
-AlphaEvolve:       LLM ───────→ (architecture + parameters) in one shot
-                               (one operator for two different search problems)
-
-ml-evolve:  Claude mutates architecture ──→ TPE tunes parameters
-                 │                                    │
-          semantic, paper-grounded          Bayesian, sample-efficient
-          (what to change)                  (how to tune it)
-```
-
-**Why this matters for ML**: In practice, the "right" architecture and the "right" hyperparameters are coupled but not interchangeable. A promising structural idea (e.g., adding residual connections, switching loss functions) can be ruined by bad parameter choices, and vice versa. By decoupling them, ml-evolve lets Claude focus on what LLMs do best — proposing semantically meaningful structural changes grounded in recent research — while TPE handles what Bayesian optimization does best: finding the optimal numerical configuration for a fixed architecture. Each search level uses the right tool, and they compose rather than interfere.
-
-### 2. ML-native search structure: research plan + stage promotion
-
-AlphaEvolve's MAP-Elites grid is a general-purpose diversity mechanism — it partitions solution space by abstract behavioral characteristics (e.g., code complexity, loop structure). This works well for open-ended discovery, but it doesn't map naturally to the ML researcher's mental model.
-
-ml-evolve replaces this with a structure purpose-built for ML iteration:
-
-| ML-native concept | How ml-evolve models it |
+| AlphaEvolve optimizes for | ml-evolve optimizes for |
 |---|---|
-| **Research hypothesis** | Each island = one explicit branch hypothesis (e.g., "does focal-InfoNCE outperform standard InfoNCE under sparse negative sampling?"). Grounded in papers, not abstract behavior metrics. |
-| **Experiment stages** | `small` → `medium` → `final` directly mirrors ML's train/val/test pipeline. Each stage has different data volume, epoch count, and compute cost — not just parallel evaluation slots. |
-| **What gets mutated** | The evolution target is the ML algorithm core: model architecture, loss function, negative sampling strategy, optimizer schedule. These are the knobs an ML researcher would turn. |
-| **Evaluation contract** | `evaluator.py` owns the full ML protocol — data splits, leakage guards, scoring formula, seed averaging. Candidates never touch evaluation logic. |
+| **Scale**: thousands of evaluations per problem, powered by Gemini Flash + Pro throughput | **Cost per run**: a single workstation or small cluster. Runs are hours, not days; tens of candidates, not thousands |
+| **Closed loop**: orchestration, mutation, and evaluation owned end-to-end | **Open agent**: any code-editing LLM works — Claude, GPT, open-source models, or even a human editing the candidate file |
+| **Reach**: demonstrated on formal verifiers (matrix multiplication kernels) and noisy ML evaluators alike | **Depth per iteration**: two-level search (LLM → structure, TPE → parameters) extracts more signal from each candidate evaluation |
+| **Discovery breadth**: LLM is the *only* operator — one diff handles both structure and parameter changes | **Saturation awareness**: TPE telemetry tells the agent *when* to mutate structurally vs. continue tuning — neither AlphaEvolve nor freeform loops surface this signal explicitly |
 
-**Why this matters for ML**: When you're optimizing an ML system, you think in terms of "which loss function works better with this encoder" or "how many layers before overfitting" — not in terms of behavioral grid cells. ml-evolve's island hypothesis model and staged evaluation pipeline directly match how ML researchers design and validate experiments, making the search trajectory interpretable and diagnosable.
+**Honest limitations of ml-evolve vs. AlphaEvolve**:
 
-### 3. Limited mutation scope for focused ML iteration
+- **No formal verification.** AlphaEvolve produces certifiable improvements to matrix-multiplication algorithms; ml-evolve can't, because its loop assumes a noisy scalar evaluator.
+- **No mass parallelism.** With `parallel_workers=1` (the default on a single GPU), the search is sequential.
+- **No automatic code minimization.** A winning candidate is a `.py` file, not a theorem.
 
-AlphaEvolve generates full-program diffs — the LLM can modify any part of the code. This freedom is valuable for discovering entirely new algorithms, but in ML optimization the evaluation pipeline (data loading, preprocessing, metric computation) must remain fixed to produce comparable results. If the LLM accidentally modifies the data split or metric logic, the entire experiment history is invalidated.
+**The honest framing**: ml-evolve is "AlphaEvolve for the case where one researcher with one GPU wants to do real algorithmic search on a moderately complex ML problem, and needs to be able to explain every step to their team."
 
-ml-evolve constrains mutations to the `EVOLVE` block — the part of the code that defines the algorithm's core logic (model architecture, loss, training loop). The evaluator, data pipeline, and scoring formula are frozen. This is not about safety in the abstract; it's about **experimental validity** — every candidate in the leaderboard is comparable because the evaluation protocol is guaranteed constant across generations.
+---
 
-### When each is suited
+## Relationship to Karpathy's AutoResearch
 
-| Goal | Best fit |
-|---|---|
-| Discover novel algorithms from scratch (sorting, hashing, math) | AlphaEvolve |
-| Optimize an ML architecture for a domain-specific metric | **ml-evolve** |
-| Test competing algorithmic hypotheses with controlled experiments | **ml-evolve** |
-| Evolve the entire training pipeline including data strategy | AlphaEvolve (with careful evaluation design) |
+[AutoResearch](https://github.com/karpathy/autoresearch) (March 2026) is the closest spiritual relative — both are file-based, agent-driven research loops designed to run autonomously for hours. The shared vision is real: the agent is the proposer, instructions live in markdown files, experiments produce artifacts that survive the session, and the evaluation contract is frozen.
+
+Where ml-evolve deliberately optimizes beyond AutoResearch's design:
+
+### 1. Parameter sweeps belong to TPE, not the agent
+On nanoGPT, learning-rate sweeps are cheap enough that an agent burning 12 experiments/hour can grid-search by trial and error. On a recommender with 100K events per `small` evaluation, that's hopeless. ml-evolve's `PARAM_SEARCH_SPACE` contract pushes the LLM out of the loop for parameter search and lets Optuna TPE do what it's good at — with explicit saturation detection so structural mutations happen only when needed.
+
+### 2. Saturation is a first-class signal
+AutoResearch's agent sees its own run history but has no explicit telemetry telling it "your last 8 trials on this architecture had slope -0.0002, switch to a structural mutation." ml-evolve computes this from TPE's trial-by-trial best-score series and injects it into the next mutation prompt.
+
+### 3. Three islands beat one stream on multimodal landscapes
+A single-stream loop is a greedy hill climber — once it finds a plausible direction it stays there. For nanoGPT this works; for an open recommender, three branches running in parallel with periodic replan find materially different optima. On `recall-r3i9t8`, the winner came from a branch (LightGCN + focal-InfoNCE) the agent would not have explored under a single greedy stream.
+
+### 4. Stage hierarchy lets you spend compute where it matters
+AutoResearch's 5-minute budget is the *only* budget. If your evaluator takes 30 minutes per epoch, the design doesn't translate. ml-evolve's stages let you declare cheap-to-expensive tiers; promotion filters out candidates that degrade at scale.
+
+### 5. Web research is enforced per mutation, not delegated
+AutoResearch can *ask* for research in `program.md`, but it's a request. ml-evolve's mutation prompt has a *required* research section with named source categories and citation requirements. This is the single most important factor preventing drift to the agent's training-data priors.
+
+### 6. Domain-agnostic by construction
+To adapt AutoResearch from LLM pre-training to a recommender, you rewrite `prepare.py`, `train.py`, the metric, and most of `program.md`. ml-evolve was designed so that swapping `task_spec.yaml`, `evaluator.py`, and `initial_program.py` is enough — the framework body never changes.
+
+### 7. Resumability across sessions and machines
+AutoResearch's state lives in git commits plus run logs. ml-evolve's lives in `state.json` (population, archive, TPE saturation, replan history) and `history.jsonl` (every evaluation ever). Kill the run, restart on a different machine, pick up exactly where you left off.
+
+**Where AutoResearch remains stronger**:
+
+- If your task fits "edit a single file, train for 5 minutes, check `val_bpb`," AutoResearch's three-file setup is genuinely lower-friction.
+- If the search space is truly unknown, AutoResearch's freeform stream may find directions the spec author wouldn't have named up front.
+- ~12 experiments/hour is a tighter feedback loop than ml-evolve's typical generation cadence (1–3/hour with web research).
+
+**Honest framing**: AutoResearch and ml-evolve are siblings, not competitors. Move from AutoResearch to ml-evolve when the search space is multimodal, the evaluator is expensive enough that you can't run it at full cost on every candidate, or you need an audit trail that survives the experiment.
+
+---
+
+## Relationship to other auto-search approaches
+
+| System | What it optimizes | What ml-evolve adds |
+|---|---|---|
+| **AutoML** (AutoGluon, auto-sklearn, H2O) | Model selection + HPO from a fixed model zoo | Claude invents architectures grounded in recent papers — not from a pre-defined gallery |
+| **Coding agents** (AutoGPT, Claude Code) | Single-shot code generation with reactive improvement | Structured loop: plan → mutate → TPE tune → gate → promote. Not a single shot, not ad-hoc |
+| **Traditional EA** (NEAT, Deep GA) | Hand-crafted mutation operators on a single population | LLM-driven semantically aware mutations + decoupled parameter search + multi-island diversity |
 
 ---
 
