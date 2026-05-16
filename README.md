@@ -28,6 +28,8 @@ Unlike academic research frameworks, ml-evolve is built for **industrial deploym
 - Promotion gates move winners from cheap stages (e.g. `small`) to expensive
   ones (`medium`, `full`, `final`), so compute is spent only on what survives.
 
+![ml-evolve algorithm flowchart](assets/flowchart.png)
+
 ---
 
 ## Quickstart
