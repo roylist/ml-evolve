@@ -226,49 +226,55 @@ ml-evolve occupies a distinct niche that none of these cover alone.
 
 ---
 
-## How ml-evolve improves on DeepMind's AlphaEvolve
+## How ml-evolve improves on DeepMind's AlphaEvolve for ML optimization
 
-[AlphaEvolve](https://deepmind.google/blog/alphaevolve-a-gemini-powered-coding-agent-for-designing-advanced-algorithms/) (May 2025) pioneered the idea of using an LLM ensemble as an evolutionary operator for algorithm discovery. ml-evolve is directly inspired by this paradigm, but makes three targeted improvements:
+[AlphaEvolve](https://deepmind.google/blog/alphaevolve-a-gemini-powered-coding-agent-for-designing-advanced-algorithms/) (May 2025) pioneered the paradigm of using LLMs as evolutionary operators for general-purpose algorithm discovery — solving open math problems, finding faster sorting algorithms, etc. ml-evolve is directly inspired by this approach, but is specifically engineered for the ML optimization workflow, where the nature of the search problem differs fundamentally.
 
-### 1. Decoupled search architecture (LLM → structure, TPE → parameters)
+### 1. Two-level search designed for the ML optimization landscape
 
-AlphaEvolve treats Gemini as the *only* evolutionary operator — architecture and parameter changes happen simultaneously in a single LLM-generated diff. This is elegant but conflates two fundamentally different search problems.
+ML optimization has a unique structure: architectural changes and hyperparameter tuning operate at different abstraction levels and respond to different signals. AlphaEvolve treats both as a single LLM-generated diff — the same operator handles structural redesign and numerical tweaking simultaneously.
 
 ```
 AlphaEvolve:       LLM ───────→ (architecture + parameters) in one shot
+                               (one operator for two different search problems)
 
-ml-evolve:  Claude mutates architecture ──→ TPE optimizes parameters
-                 (semantic, paper-grounded)      (Bayesian, sample-efficient)
+ml-evolve:  Claude mutates architecture ──→ TPE tunes parameters
+                 │                                    │
+          semantic, paper-grounded          Bayesian, sample-efficient
+          (what to change)                  (how to tune it)
 ```
 
-**Improvement**: By separating these, ml-evolve lets each search level use the right tool. Claude's strength is understanding algorithm semantics and proposing structurally sound changes. TPE's strength is sample-efficient numerical optimization — finding the best learning rate, depth, or temperature for a given architecture. They don't compete; they compose.
+**Why this matters for ML**: In practice, the "right" architecture and the "right" hyperparameters are coupled but not interchangeable. A promising structural idea (e.g., adding residual connections, switching loss functions) can be ruined by bad parameter choices, and vice versa. By decoupling them, ml-evolve lets Claude focus on what LLMs do best — proposing semantically meaningful structural changes grounded in recent research — while TPE handles what Bayesian optimization does best: finding the optimal numerical configuration for a fixed architecture. Each search level uses the right tool, and they compose rather than interfere.
 
-### 2. From Google-scale infrastructure to single-GPU accessibility
+### 2. ML-native search structure: research plan + stage promotion
 
-| Where AlphaEvolve requires | How ml-evolve improves |
+AlphaEvolve's MAP-Elites grid is a general-purpose diversity mechanism — it partitions solution space by abstract behavioral characteristics (e.g., code complexity, loop structure). This works well for open-ended discovery, but it doesn't map naturally to the ML researcher's mental model.
+
+ml-evolve replaces this with a structure purpose-built for ML iteration:
+
+| ML-native concept | How ml-evolve models it |
 |---|---|
-| Proprietary Gemini models (Flash + Pro) with massive API quota. | Works with **any code-editing LLM** — Claude, GPT, open-source models. You bring the model you already use. |
-| Distributed evaluation infrastructure for massive parallelism. | **Single-GPU / laptop** — evaluator runs locally. Stage promotion substitutes parallelism with progressive filtering. |
-| DeepMind's internal program database (MAP-Elites grid). | **Simple island model** in local files — one `research_plan.md` per branch. Easy to inspect, modify, or restart. |
-| 4-component distributed async system. | **Single `evolve.py` runner** (~76 KB) + one helper script. Read the whole thing in one sitting. |
-| Not user-installable. | **Fully open-source**: `pip install` dependencies, write `task_spec.yaml`, run. |
+| **Research hypothesis** | Each island = one explicit branch hypothesis (e.g., "does focal-InfoNCE outperform standard InfoNCE under sparse negative sampling?"). Grounded in papers, not abstract behavior metrics. |
+| **Experiment stages** | `small` → `medium` → `final` directly mirrors ML's train/val/test pipeline. Each stage has different data volume, epoch count, and compute cost — not just parallel evaluation slots. |
+| **What gets mutated** | The evolution target is the ML algorithm core: model architecture, loss function, negative sampling strategy, optimizer schedule. These are the knobs an ML researcher would turn. |
+| **Evaluation contract** | `evaluator.py` owns the full ML protocol — data splits, leakage guards, scoring formula, seed averaging. Candidates never touch evaluation logic. |
 
-**Improvement**: ml-evolve democratizes the AlphaEvolve paradigm — any researcher with a GPU and an LLM API key can run evolutionary algorithm optimization, without needing Google-scale infrastructure.
+**Why this matters for ML**: When you're optimizing an ML system, you think in terms of "which loss function works better with this encoder" or "how many layers before overfitting" — not in terms of behavioral grid cells. ml-evolve's island hypothesis model and staged evaluation pipeline directly match how ML researchers design and validate experiments, making the search trajectory interpretable and diagnosable.
 
-### 3. Safety and auditability by design
+### 3. Limited mutation scope for focused ML iteration
 
-AlphaEvolve generates full-program diffs guided by natural-language context. Powerful, but risky — a bad diff can silently corrupt unrelated logic. ml-evolve constrains mutations to the `EVOLVE` block, protecting frozen code. Every mutation request is written to disk as a markdown file — you can re-read exactly what context drove each decision.
+AlphaEvolve generates full-program diffs — the LLM can modify any part of the code. This freedom is valuable for discovering entirely new algorithms, but in ML optimization the evaluation pipeline (data loading, preprocessing, metric computation) must remain fixed to produce comparable results. If the LLM accidentally modifies the data split or metric logic, the entire experiment history is invalidated.
 
-**Improvement**: Lower risk per mutation, higher visibility per decision. ml-evolve trades some of AlphaEvolve's raw mutation freedom for **safety, reproducibility, and inspectability** — qualities that matter more in production optimization than in open-ended scientific discovery.
+ml-evolve constrains mutations to the `EVOLVE` block — the part of the code that defines the algorithm's core logic (model architecture, loss, training loop). The evaluator, data pipeline, and scoring formula are frozen. This is not about safety in the abstract; it's about **experimental validity** — every candidate in the leaderboard is comparable because the evaluation protocol is guaranteed constant across generations.
 
 ### When each is suited
 
 | Goal | Best fit |
 |---|---|
-| Solve open math problems / discover novel algorithms from scratch | AlphaEvolve (if you have Google-scale resources) |
-| Optimize an existing ML algorithm for a domain-specific metric on your own hardware | **ml-evolve** |
-| Run overnight LLM training experiments with minimal setup | Karpathy's AutoResearch |
-| Production-grade evolution with auditable trajectory | **ml-evolve** |
+| Discover novel algorithms from scratch (sorting, hashing, math) | AlphaEvolve |
+| Optimize an ML architecture for a domain-specific metric | **ml-evolve** |
+| Test competing algorithmic hypotheses with controlled experiments | **ml-evolve** |
+| Evolve the entire training pipeline including data strategy | AlphaEvolve (with careful evaluation design) |
 
 ---
 
