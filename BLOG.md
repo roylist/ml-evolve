@@ -84,7 +84,21 @@ Once candidates from all islands are scored:
 
 This is the system's anti-collapse mechanism. Without it, all islands eventually converge to the same lineage. The replan step is where the Plan Agent revises *its own search strategy* — the meta-cognitive loop that makes this a self-evolving system, not just a genetic algorithm with extra steps.
 
-### 3.1 The task spec contract
+### Algorithm Flow: End-to-End
+
+Here's how the full pipeline runs, from start to finish:
+
+| Phase | Input | What happens | Output | Feeds into |
+|---|---|---|---|---|
+| **0. Task spec** | Problem definition (objective, metric, branches, budget) | Human writes one YAML file describing the ML problem, search space, and compute constraints | `task_spec.yaml` | All subsequent phases |
+| **1. Plan** | Task spec + leaderboard (empty on first run) | Plan Agent researches current literature (conference papers, tech blogs, Kaggle), writes a research plan with one hypothesis per island | Research plan with per-island hypotheses, model family hints, kill criteria | Phase 2 |
+| **2. Select & Mutate** | Research plan + best candidate from each island | For each island: pick the best parent candidate, give the Mutation Agent its performance data + research plan excerpt. Agent edits the algorithm core (architecture, loss function, training logic). | A new candidate program per island with a structurally different algorithm | Phase 3 |
+| **3. Parameter search** | New candidate + its `PARAM_SEARCH_SPACE` | Parameter Agent (Optuna TPE) runs Bayesian trials on numerical parameters. Reports saturation score: is further tuning worthwhile or is this architecture tapped out? | Optimized parameters + saturation signal | Phase 4 |
+| **4. Evaluate** | Candidate + optimized params | Run the candidate through a fixed evaluation protocol. Every candidate sees the same data splits, metric formula, and seed averaging. | Score + full metric dict | Phase 5 |
+| **5. Gate** | Score, current stage (small / medium / full) | **Promote**: if this score is among the top-K across all islands, re-evaluate on the next expensive stage. **Replan** (periodic): check each island's health — KEEP (still improving), REFRESH (plateau, new direction), or RETIRE (dead end). | Updated leaderboard + updated research plan | Back to Phase 2 (for the next generation) |
+| **6. Stop** | Iteration count, best score, patience | Stop when any of: iteration budget reached, target score achieved, or no improvement for N generations | Final leaderboard + full trajectory files | Done |
+
+**The loop**: Phases 2–5 repeat until the stop condition triggers. Each pass through the loop = one generation. A typical run completes 9–15 generations, evaluating 50–150 candidates total across all islands and parameter trials.
 
 A user authors one YAML file. Excerpt:
 
