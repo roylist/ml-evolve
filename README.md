@@ -6,7 +6,7 @@ ml-evolve, a domain-agnostic, self-evolving agent system for ML algorithm optimi
 
 - **Three-agent architecture**: Plan Agent (research + strategy), Mutation Agent (Claude, structural edits), Parameter Agent (Optuna TPE, numerical optimization)
 - **Multi-island evolution**: independent branches with periodic replan (KEEP / REFRESH / RETIRE & REPLACE) prevent premature convergence
-- **Stage promotion**: cheap-to-expensive evaluation tiers with promotion gates
+- **Stage promotion**: fast parameter search for industrial level large dataset, cheap-to-expensive evaluation tiers with promotion gates
 - **Research-grounded mutations**: every mutation must cite recent sources (conference papers, tech blogs, Kaggle)
 - **Saturation-driven timing**: TPE telemetry tells the mutation agent when to stop tuning and start redesigning
 - **Fully open-source**: works with any code-editing LLM (Claude, GPT, open-source), single-GPU deployable
